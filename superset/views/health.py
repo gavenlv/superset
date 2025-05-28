@@ -17,6 +17,126 @@
 from superset import app, talisman
 from superset.stats_logger import BaseStatsLogger
 from superset.superset_typing import FlaskResponse
+from superset.extensions import db, cache_manager
+from superset.models.core import Database
+from sqlalchemy.exc import SQLAlchemyError
+from flask import jsonify, request
+import logging
+from contextlib import closing
+from typing import Dict, List, Tuple, Any
+
+logger = logging.getLogger(__name__)
+
+
+class HealthChecker:
+    """Health checker class for Superset components"""
+    
+    def __init__(self, db_session=None, cache=None):
+        """Initialize health checker with optional dependencies for testing"""
+        self.db_session = db_session or db.session
+        self.cache = cache or cache_manager.cache
+        
+    def check_metadata_db(self) -> Tuple[bool, str]:
+        """Check if the metadata database is accessible"""
+        try:
+            self.db_session.execute("SELECT 1")
+            return True, "Metadata database is healthy"
+        except SQLAlchemyError as e:
+            logger.error("Metadata database health check failed: %s", str(e))
+            return False, f"Metadata database error: {str(e)}"
+
+    def check_cache(self) -> Tuple[bool, str]:
+        """Check if the cache system is working"""
+        try:
+            self.cache.set("health_check", "ok", timeout=10)
+            result = self.cache.get("health_check")
+            if result == "ok":
+                return True, "Cache system is healthy"
+            return False, "Cache system is not responding correctly"
+        except Exception as e:
+            logger.error("Cache health check failed: %s", str(e))
+            return False, f"Cache system error: {str(e)}"
+
+    def check_database_connections(self) -> List[Dict[str, str]]:
+        """Check if all configured databases are accessible"""
+        results = []
+        databases = self.db_session.query(Database).all()
+        
+        for database in databases:
+            try:
+                with database.get_sqla_engine() as engine:
+                    with closing(engine.raw_connection()) as conn:
+                        is_alive = engine.dialect.do_ping(conn)
+                        if is_alive:
+                            results.append({
+                                "name": database.database_name,
+                                "status": "healthy",
+                                "message": "Database is accessible"
+                            })
+                        else:
+                            results.append({
+                                "name": database.database_name,
+                                "status": "unhealthy",
+                                "message": "Database is not responding"
+                            })
+            except Exception as e:
+                logger.error("Database %s health check failed: %s", database.database_name, str(e))
+                results.append({
+                    "name": database.database_name,
+                    "status": "unhealthy",
+                    "message": f"Error: {str(e)}"
+                })
+        
+        return results
+
+    def get_health_status(self, detailed: bool = False) -> Tuple[Dict[str, Any], int]:
+        """Get comprehensive health status of all components
+        
+        Args:
+            detailed: If True, check all components (cache and databases).
+                     If False, only check metadata database for faster response.
+        """
+        # Always check metadata database (core requirement)
+        metadata_db_healthy, metadata_db_message = self.check_metadata_db()
+        
+        response = {
+            "status": "healthy" if metadata_db_healthy else "unhealthy",
+            "components": {
+                "metadata_database": {
+                    "status": "healthy" if metadata_db_healthy else "unhealthy",
+                    "message": metadata_db_message
+                }
+            }
+        }
+        
+        overall_healthy = metadata_db_healthy
+        
+        if detailed:
+            # Check cache system
+            cache_healthy, cache_message = self.check_cache()
+            response["components"]["cache"] = {
+                "status": "healthy" if cache_healthy else "unhealthy",
+                "message": cache_message
+            }
+            
+            # Check database connections
+            database_results = self.check_database_connections()
+            response["components"]["databases"] = database_results
+            
+            # Update overall health status
+            all_databases_healthy = all(db_result["status"] == "healthy" for db_result in database_results)
+            overall_healthy = metadata_db_healthy and cache_healthy and all_databases_healthy
+            response["status"] = "healthy" if overall_healthy else "unhealthy"
+        else:
+            # For non-detailed checks, indicate that detailed checks were skipped
+            response["components"]["cache"] = {
+                "status": "skipped",
+                "message": "Cache check skipped (use ?detail=true for full health check)"
+            }
+            response["components"]["databases"] = []
+        
+        status_code = 200 if overall_healthy else 503
+        return response, status_code
 
 
 @talisman(force_https=False)
@@ -24,6 +144,25 @@ from superset.superset_typing import FlaskResponse
 @app.route("/healthcheck")
 @app.route("/ping")
 def health() -> FlaskResponse:
+    """Enhanced health check endpoint that verifies the status of critical components
+    
+    Query Parameters:
+        detail (bool): If 'true', performs detailed health checks on all components
+                      (cache and database connections). If 'false' or omitted,
+                      only checks the metadata database for faster response.
+    
+    Examples:
+        GET /health - Quick check (metadata database only)
+        GET /health?detail=true - Full health check (all components)
+    """
     stats_logger: BaseStatsLogger = app.config["STATS_LOGGER"]
     stats_logger.incr("health")
-    return "OK"
+    
+    # Parse detail parameter
+    detail_param = request.args.get('detail', 'false').lower()
+    detailed = detail_param in ('true', '1', 'yes', 'on')
+    
+    health_checker = HealthChecker()
+    response, status_code = health_checker.get_health_status(detailed=detailed)
+    
+    return jsonify(response), status_code
