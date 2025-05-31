@@ -25,7 +25,7 @@ class TestHealthEndpoint(SupersetTestCase):
     """Integration tests for the health endpoint"""
 
     def test_health_endpoint_basic(self):
-        """Test that the health endpoint returns a valid response (basic check)"""
+        """Test that the health endpoint returns a valid response (basic check includes metadata DB and cache)"""
         response = self.client.get("/health")
         
         # Should return a JSON response
@@ -45,12 +45,14 @@ class TestHealthEndpoint(SupersetTestCase):
         assert "status" in data["components"]["metadata_database"]
         assert "message" in data["components"]["metadata_database"]
         
-        # Cache should be skipped in basic check
-        assert data["components"]["cache"]["status"] == "skipped"
-        assert "use ?detail=true" in data["components"]["cache"]["message"]
+        # Cache should now be checked in basic mode (not skipped)
+        assert "status" in data["components"]["cache"]
+        assert "message" in data["components"]["cache"]
+        assert data["components"]["cache"]["status"] != "skipped"
         
-        # Databases should be empty list in basic check
-        assert data["components"]["databases"] == []
+        # Databases should be skipped in basic check
+        assert data["components"]["databases"]["status"] == "skipped"
+        assert "use ?detail=true" in data["components"]["databases"]["message"]
 
     def test_health_endpoint_detailed(self):
         """Test that the health endpoint returns detailed response when requested"""
@@ -101,9 +103,9 @@ class TestHealthEndpoint(SupersetTestCase):
             response = self.client.get(f"/health?detail={detail_value}")
             data = json.loads(response.data)
             
-            # Should perform basic check only
-            assert data["components"]["cache"]["status"] == "skipped"
-            assert data["components"]["databases"] == []
+            # Should perform basic check (metadata DB and cache, but not databases)
+            assert data["components"]["cache"]["status"] != "skipped"
+            assert data["components"]["databases"]["status"] == "skipped"
 
     def test_health_endpoint_aliases(self):
         """Test that all health endpoint aliases work"""
@@ -117,7 +119,8 @@ class TestHealthEndpoint(SupersetTestCase):
             data = json.loads(response.data)
             assert "status" in data
             assert data["status"] in ["healthy", "unhealthy"]
-            assert data["components"]["cache"]["status"] == "skipped"
+            assert data["components"]["cache"]["status"] != "skipped"
+            assert data["components"]["databases"]["status"] == "skipped"
             
             # Test detailed check
             response = self.client.get(f"{endpoint}?detail=true")
@@ -125,6 +128,7 @@ class TestHealthEndpoint(SupersetTestCase):
             
             data = json.loads(response.data)
             assert data["components"]["cache"]["status"] != "skipped"
+            assert isinstance(data["components"]["databases"], list)
 
     def test_health_endpoint_with_database_error_detailed(self):
         """Test health endpoint when database connections fail (detailed check)"""
@@ -177,18 +181,22 @@ class TestHealthEndpoint(SupersetTestCase):
                 assert "Metadata database connection failed" in data["components"]["metadata_database"]["message"]
 
     def test_health_endpoint_basic_vs_detailed_performance(self):
-        """Test that basic check doesn't call expensive operations"""
+        """Test that basic check calls metadata DB and cache, but not database connections"""
         with patch('superset.views.health.HealthChecker.check_cache') as mock_cache_check, \
              patch('superset.views.health.HealthChecker.check_database_connections') as mock_db_check:
             
-            # Basic check should not call cache or database checks
+            # Basic check should call cache check but not database connections check
             response = self.client.get("/health")
             data = json.loads(response.data)
             
-            mock_cache_check.assert_not_called()
+            mock_cache_check.assert_called_once()
             mock_db_check.assert_not_called()
-            assert data["components"]["cache"]["status"] == "skipped"
-            assert data["components"]["databases"] == []
+            assert data["components"]["cache"]["status"] != "skipped"
+            assert data["components"]["databases"]["status"] == "skipped"
+            
+            # Reset mocks
+            mock_cache_check.reset_mock()
+            mock_db_check.reset_mock()
             
             # Detailed check should call all checks
             response = self.client.get("/health?detail=true")

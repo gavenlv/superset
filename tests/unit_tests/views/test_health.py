@@ -302,13 +302,14 @@ class TestHealthChecker:
         assert response["components"]["databases"][1]["status"] == "unhealthy"
 
     def test_get_health_status_basic_check_only(self):
-        """Test get_health_status with detailed=False (basic check only)"""
+        """Test get_health_status with detailed=False (basic check includes metadata DB and cache)"""
         # Arrange
         with patch.object(self.health_checker, 'check_metadata_db') as mock_metadata, \
              patch.object(self.health_checker, 'check_cache') as mock_cache, \
              patch.object(self.health_checker, 'check_database_connections') as mock_db_connections:
             
             mock_metadata.return_value = (True, "Metadata database is healthy")
+            mock_cache.return_value = (True, "Cache system is healthy")
             
             # Act
             response, status_code = self.health_checker.get_health_status(detailed=False)
@@ -317,12 +318,13 @@ class TestHealthChecker:
         assert status_code == 200
         assert response["status"] == "healthy"
         assert response["components"]["metadata_database"]["status"] == "healthy"
-        assert response["components"]["cache"]["status"] == "skipped"
-        assert "use ?detail=true" in response["components"]["cache"]["message"]
-        assert response["components"]["databases"] == []
+        assert response["components"]["cache"]["status"] == "healthy"
+        assert response["components"]["databases"]["status"] == "skipped"
+        assert "use ?detail=true" in response["components"]["databases"]["message"]
         
-        # Verify that cache and database checks were not called
-        mock_cache.assert_not_called()
+        # Verify that cache check was called (now part of basic check)
+        mock_cache.assert_called_once()
+        # Verify that database check was not called
         mock_db_connections.assert_not_called()
 
     def test_get_health_status_basic_check_metadata_unhealthy(self):
@@ -333,6 +335,7 @@ class TestHealthChecker:
              patch.object(self.health_checker, 'check_database_connections') as mock_db_connections:
             
             mock_metadata.return_value = (False, "Metadata database connection failed")
+            mock_cache.return_value = (True, "Cache system is healthy")
             
             # Act
             response, status_code = self.health_checker.get_health_status(detailed=False)
@@ -341,11 +344,37 @@ class TestHealthChecker:
         assert status_code == 503
         assert response["status"] == "unhealthy"
         assert response["components"]["metadata_database"]["status"] == "unhealthy"
-        assert response["components"]["cache"]["status"] == "skipped"
-        assert response["components"]["databases"] == []
+        assert response["components"]["cache"]["status"] == "healthy"
+        assert response["components"]["databases"]["status"] == "skipped"
         
-        # Verify that cache and database checks were not called
-        mock_cache.assert_not_called()
+        # Verify that cache check was called (now part of basic check)
+        mock_cache.assert_called_once()
+        # Verify that database check was not called
+        mock_db_connections.assert_not_called()
+
+    def test_get_health_status_basic_check_cache_unhealthy(self):
+        """Test get_health_status with detailed=False when cache is unhealthy"""
+        # Arrange
+        with patch.object(self.health_checker, 'check_metadata_db') as mock_metadata, \
+             patch.object(self.health_checker, 'check_cache') as mock_cache, \
+             patch.object(self.health_checker, 'check_database_connections') as mock_db_connections:
+            
+            mock_metadata.return_value = (True, "Metadata database is healthy")
+            mock_cache.return_value = (False, "Cache system error")
+            
+            # Act
+            response, status_code = self.health_checker.get_health_status(detailed=False)
+
+        # Assert
+        assert status_code == 503
+        assert response["status"] == "unhealthy"
+        assert response["components"]["metadata_database"]["status"] == "healthy"
+        assert response["components"]["cache"]["status"] == "unhealthy"
+        assert response["components"]["databases"]["status"] == "skipped"
+        
+        # Verify that cache check was called (now part of basic check)
+        mock_cache.assert_called_once()
+        # Verify that database check was not called
         mock_db_connections.assert_not_called()
 
     def test_health_checker_with_default_dependencies(self):

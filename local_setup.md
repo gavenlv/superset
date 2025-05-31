@@ -48,8 +48,8 @@ pip install -r requirements/development.txt
 ```command
 FLASK_APP = superset
 FLASK_ENV = development
-PYTHONPATH = D:\workspace\superset
-SUPERSET_CONFIG_PATH = D:\workspace\superset\superset_config.py
+PYTHONPATH = D:\workspace\superset-github\superset\
+SUPERSET_CONFIG_PATH = D:\workspace\superset-github\superset\superset_config.py
 SUPERSET_SECRET_KEY=fiVM2JDST7oP0SkXtge8RhCE+mtWk2GmoI7xHwMc5BsspcWfbMmWoqf8
 SECRET_KEY=SUPERSET_SECRET_KEY
 SUPERSET_DATABASE_URI=postgresql+psycopg2://postgres:root@localhost:25011/superset_db

@@ -93,47 +93,46 @@ class HealthChecker:
         """Get comprehensive health status of all components
         
         Args:
-            detailed: If True, check all components (cache and databases).
-                     If False, only check metadata database for faster response.
+            detailed: If True, check all components (metadata database, cache, and databases).
+                     If False, check metadata database and cache only (default behavior).
         """
         # Always check metadata database (core requirement)
         metadata_db_healthy, metadata_db_message = self.check_metadata_db()
         
+        # Always check cache system (now part of default checks)
+        cache_healthy, cache_message = self.check_cache()
+        
         response = {
-            "status": "healthy" if metadata_db_healthy else "unhealthy",
+            "status": "healthy" if (metadata_db_healthy and cache_healthy) else "unhealthy",
             "components": {
                 "metadata_database": {
                     "status": "healthy" if metadata_db_healthy else "unhealthy",
                     "message": metadata_db_message
+                },
+                "cache": {
+                    "status": "healthy" if cache_healthy else "unhealthy",
+                    "message": cache_message
                 }
             }
         }
         
-        overall_healthy = metadata_db_healthy
+        overall_healthy = metadata_db_healthy and cache_healthy
         
         if detailed:
-            # Check cache system
-            cache_healthy, cache_message = self.check_cache()
-            response["components"]["cache"] = {
-                "status": "healthy" if cache_healthy else "unhealthy",
-                "message": cache_message
-            }
-            
-            # Check database connections
+            # Check database connections (only in detailed mode)
             database_results = self.check_database_connections()
             response["components"]["databases"] = database_results
             
-            # Update overall health status
+            # Update overall health status to include database checks
             all_databases_healthy = all(db_result["status"] == "healthy" for db_result in database_results)
             overall_healthy = metadata_db_healthy and cache_healthy and all_databases_healthy
             response["status"] = "healthy" if overall_healthy else "unhealthy"
         else:
-            # For non-detailed checks, indicate that detailed checks were skipped
-            response["components"]["cache"] = {
+            # For non-detailed checks, indicate that database checks were skipped
+            response["components"]["databases"] = {
                 "status": "skipped",
-                "message": "Cache check skipped (use ?detail=true for full health check)"
+                "message": "Database connections check skipped (use ?detail=true for full health check)"
             }
-            response["components"]["databases"] = []
         
         status_code = 200 if overall_healthy else 503
         return response, status_code
@@ -148,12 +147,12 @@ def health() -> FlaskResponse:
     
     Query Parameters:
         detail (bool): If 'true', performs detailed health checks on all components
-                      (cache and database connections). If 'false' or omitted,
-                      only checks the metadata database for faster response.
+                      (metadata database, cache, and database connections). If 'false' or omitted,
+                      checks metadata database and cache only (default behavior).
     
     Examples:
-        GET /health - Quick check (metadata database only)
-        GET /health?detail=true - Full health check (all components)
+        GET /health - Standard check (metadata database and cache)
+        GET /health?detail=true - Full health check (all components including database connections)
     """
     stats_logger: BaseStatsLogger = app.config["STATS_LOGGER"]
     stats_logger.incr("health")
