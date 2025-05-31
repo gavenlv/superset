@@ -132,7 +132,7 @@ class TestHealthEndpoint(SupersetTestCase):
 
     def test_health_endpoint_with_database_error_detailed(self):
         """Test health endpoint when database connections fail (detailed check)"""
-        with patch('superset.views.health.HealthChecker.check_database_connections') as mock_db_check:
+        with patch('superset.apex.health.HealthChecker.check_database_connections') as mock_db_check:
             mock_db_check.return_value = [
                 {
                     "name": "test_db",
@@ -152,7 +152,7 @@ class TestHealthEndpoint(SupersetTestCase):
 
     def test_health_endpoint_with_cache_error_detailed(self):
         """Test health endpoint when cache fails (detailed check)"""
-        with patch('superset.views.health.HealthChecker.check_cache') as mock_cache_check:
+        with patch('superset.apex.health.HealthChecker.check_cache') as mock_cache_check:
             mock_cache_check.return_value = (False, "Cache connection failed")
             
             response = self.client.get("/health?detail=true")
@@ -166,7 +166,7 @@ class TestHealthEndpoint(SupersetTestCase):
 
     def test_health_endpoint_with_metadata_db_error(self):
         """Test health endpoint when metadata database fails"""
-        with patch('superset.views.health.HealthChecker.check_metadata_db') as mock_metadata_check:
+        with patch('superset.apex.health.HealthChecker.check_metadata_db') as mock_metadata_check:
             mock_metadata_check.return_value = (False, "Metadata database connection failed")
             
             # Test both basic and detailed checks
@@ -182,8 +182,8 @@ class TestHealthEndpoint(SupersetTestCase):
 
     def test_health_endpoint_basic_vs_detailed_performance(self):
         """Test that basic check calls metadata DB and cache, but not database connections"""
-        with patch('superset.views.health.HealthChecker.check_cache') as mock_cache_check, \
-             patch('superset.views.health.HealthChecker.check_database_connections') as mock_db_check:
+        with patch('superset.apex.health.HealthChecker.check_cache') as mock_cache_check, \
+             patch('superset.apex.health.HealthChecker.check_database_connections') as mock_db_check:
             
             # Basic check should call cache check but not database connections check
             response = self.client.get("/health")
