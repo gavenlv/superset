@@ -50,34 +50,128 @@ superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger
 
 ## 验证部署
 
-### 1. 检查端点可用性
+### 1. 测试 JWT 登录
 
 ```bash
-# 检查登录端点
-curl -X POST http://your-superset-domain/api/v1/security/login/ \
+# 使用 curl 测试登录
+curl -X POST http://localhost:8088/api/v1/security/login/ \
   -H "Content-Type: application/json" \
-  -d '{"username": "test", "password": "test"}'
+  -d '{"username": "admin", "password": "admin"}'
 
-# 应该返回 401 或 200 状态码（取决于凭据是否有效）
+# 应该返回类似以下的响应：
+# {
+#   "access_token": "eyJhbGciOiJIUzI1NiIs...",
+#   "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+#   "expires_in": 3600
+# }
 ```
 
-### 2. 运行测试脚本
+### 2. 测试 API 调用
 
 ```bash
-python test_jwt_auth.py --url http://your-superset-domain --username admin --password your-admin-password
+# 使用获得的 token 调用 API
+curl -X GET http://localhost:8088/api/v1/dashboard/ \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE" \
+  -H "Content-Type: application/json"
 ```
 
-### 3. 检查日志
+### 3. 使用 Python 测试脚本
 
-查看 Superset 日志确保没有错误：
+运行提供的测试脚本：
 
 ```bash
-# 检查应用日志
-tail -f /var/log/superset/superset.log
+python test_jwt_simple.py
+```
 
-# 或者查看 systemctl 日志
+## 故障排除
+
+### 1. WebSocket 404 错误
+
+如果你在日志中看到类似以下的错误：
+
+```
+GET /ws HTTP/1.1" 404 -
+werkzeug.exceptions.NotFound: 404 Not Found
+```
+
+这些错误与 JWT 认证无关，是 WebSocket 连接尝试引起的。可以通过以下方式解决：
+
+**方法1: 在配置中禁用 WebSocket**
+```python
+# 在 superset_config.py 中添加
+GLOBAL_ASYNC_QUERIES_TRANSPORT = "polling"
+# 注释掉或删除 WebSocket URL
+# GLOBAL_ASYNC_QUERIES_WEBSOCKET_URL = "ws://127.0.0.1:8080/"
+```
+
+**方法2: 禁用全局异步查询功能**
+```python
+# 在 superset_config.py 中添加
+FEATURE_FLAGS = {
+    "GLOBAL_ASYNC_QUERIES": False,
+}
+```
+
+### 2. CSRF Token 错误
+
+如果收到 CSRF token 错误，确保已将 JWT 端点添加到 CSRF 豁免列表：
+
+```python
+WTF_CSRF_EXEMPT_LIST = [
+    "superset.views.core.log",
+    "superset.views.core.explore_json", 
+    "superset.charts.data.api.data",
+    "superset.dashboards.api.cache_dashboard_screenshot",
+    "superset.security.api.login",      # JWT 登录端点
+    "superset.security.api.refresh",    # JWT 刷新端点
+]
+```
+
+### 3. Token 过期问题
+
+如果 token 过期太快，可以调整过期时间：
+
+```python
+# 增加 token 有效期
+JWT_ACCESS_TOKEN_EXPIRES = 86400      # 24小时
+JWT_REFRESH_TOKEN_EXPIRES = 604800    # 7天
+```
+
+### 4. 导入错误
+
+如果遇到导入错误，确保安装了 PyJWT 库：
+
+```bash
+pip install PyJWT
+# 或者
+pip install 'PyJWT>=2.0.0'
+```
+
+### 5. 检查日志
+
+如果遇到其他问题，检查 Superset 日志：
+
+```bash
+# 查看最近的日志
+tail -f superset.log
+
+# 或者如果使用 systemd
 journalctl -u superset -f
 ```
+
+## 安全建议
+
+1. **JWT 密钥安全**: 在生产环境中使用强随机密钥
+2. **Token 过期时间**: 根据安全需求设置合适的过期时间
+3. **HTTPS**: 在生产环境中始终使用 HTTPS
+4. **Token 存储**: 在客户端安全存储 JWT token
+5. **定期轮换**: 定期更换 JWT 密钥
+
+## 性能优化
+
+1. **Token 缓存**: 考虑缓存已验证的 token 以提高性能
+2. **并发**: JWT 认证支持高并发访问
+3. **监控**: 监控 JWT 认证端点的性能和错误率
 
 ## 生产环境配置
 

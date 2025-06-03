@@ -94,3 +94,10 @@ superset run -p 8088 --with-threads --reload --debugger
 
 - Backend API server will be available at: http://localhost:8088
 - Frontend development server will be available at: http://localhost:9000
+
+
+
+# swagger ui public:
+1. AUTH_ROLE_PUBLIC = 'Public' in config
+2. Add "Public" role permission: can get on OpenApi, can show on Swagger View
+
