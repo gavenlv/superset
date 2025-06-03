@@ -36,7 +36,7 @@ from collections import OrderedDict
 from datetime import timedelta
 from email.mime.multipart import MIMEMultipart
 from importlib.resources import files
-from typing import Any, Callable, Literal, TYPE_CHECKING, TypedDict
+from typing import Any, Callable, Literal, TYPE_CHECKING, TypedDict, Optional
 
 import click
 import pkg_resources
@@ -266,6 +266,9 @@ WTF_CSRF_EXEMPT_LIST = [
     "superset.views.core.explore_json",
     "superset.charts.data.api.data",
     "superset.dashboards.api.cache_dashboard_screenshot",
+    # JWT Authentication endpoints should be exempt from CSRF
+    "superset.security.api.login",
+    "superset.security.api.refresh",
 ]
 
 # Whether to run the web server in debug mode or not
@@ -1898,3 +1901,27 @@ elif importlib.util.find_spec("superset_config") and not is_test():
     except Exception:
         logger.exception("Found but failed to import local superset_config")
         raise
+
+# JWT Configuration for API Authentication
+# -------------------------------------------------------------------------
+# JWT secret key for signing tokens. If not set, will use SECRET_KEY
+JWT_SECRET_KEY: Optional[str] = None
+
+# JWT algorithm for signing tokens
+JWT_ALGORITHM = "HS256"
+
+# JWT access token expiration time in seconds (default: 1 hour)
+JWT_ACCESS_TOKEN_EXPIRES = 3600
+
+# JWT refresh token expiration time in seconds (default: 30 days)
+JWT_REFRESH_TOKEN_EXPIRES = 30 * 24 * 3600
+
+# Allow JWT authentication for Swagger API endpoints
+# When enabled, API endpoints will accept both JWT tokens and cookies
+ENABLE_JWT_AUTHENTICATION = True
+
+# JWT token header name (default: Authorization)
+JWT_HEADER_NAME = "Authorization"
+
+# JWT token header type (default: Bearer)
+JWT_HEADER_TYPE = "Bearer"

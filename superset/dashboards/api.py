@@ -120,6 +120,7 @@ from superset.views.filters import (
     BaseFilterRelatedUsers,
     FilterRelatedOwners,
 )
+from superset.security.decorators import protect_with_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ class DashboardRestApi(BaseSupersetModelRestApi):
         return self.response(200, result=result)
 
     @expose("/<id_or_slug>/datasets", methods=("GET",))
-    @protect()
+    @protect_with_jwt()
     @safe
     @statsd_metrics
     @event_logger.log_this_with_context(

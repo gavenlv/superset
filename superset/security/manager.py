@@ -359,8 +359,17 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
         # pylint: disable=import-outside-toplevel
         from superset.extensions import feature_flag_manager
 
+        # Try JWT authentication first if enabled
+        if current_app.config.get('ENABLE_JWT_AUTHENTICATION', True):
+            from superset.security.decorators import _authenticate_with_jwt
+            user = _authenticate_with_jwt()
+            if user:
+                return user
+
+        # Try guest token authentication for embedded Superset
         if feature_flag_manager.is_feature_enabled("EMBEDDED_SUPERSET"):
             return self.get_guest_user_from_request(request)
+        
         return None
 
     def get_catalog_perm(

@@ -15,8 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
+import jwt
 from flask import current_app, request, Response
 from flask_appbuilder import expose
 from flask_appbuilder.api import safe
@@ -28,7 +30,7 @@ from superset.commands.dashboard.embedded.exceptions import (
     EmbeddedDashboardNotFoundError,
 )
 from superset.exceptions import SupersetGenericErrorException
-from superset.extensions import event_logger
+from superset.extensions import event_logger, security_manager
 from superset.security.guest_token import GuestTokenResourceType
 from superset.views.base_api import BaseSupersetApi, statsd_metrics
 
@@ -76,7 +78,18 @@ class GuestTokenCreateSchema(PermissiveSchema):
     rls = fields.List(fields.Nested(RlsRuleSchema), required=True)
 
 
+class LoginSchema(PermissiveSchema):
+    username = fields.String(required=True)
+    password = fields.String(required=True)
+
+
+class RefreshTokenSchema(PermissiveSchema):
+    refresh_token = fields.String(required=True)
+
+
 guest_token_create_schema = GuestTokenCreateSchema()
+login_schema = LoginSchema()
+refresh_token_schema = RefreshTokenSchema()
 
 
 class SecurityRestApi(BaseSupersetApi):
@@ -111,6 +124,160 @@ class SecurityRestApi(BaseSupersetApi):
               $ref: '#/components/responses/500'
         """
         return self.response(200, result=generate_csrf())
+
+    @expose("/login/", methods=("POST",))
+    @event_logger.log_this
+    @safe
+    @statsd_metrics
+    def login(self) -> Response:
+        """Authenticate and get a JWT access and refresh token.
+        ---
+        post:
+          summary: Authenticate and get a JWT access and refresh token
+          requestBody:
+            description: Login credentials
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    username:
+                      type: string
+                    password:
+                      type: string
+                  required:
+                    - username
+                    - password
+          responses:
+            200:
+              description: Authentication successful
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      expires_in:
+                        type: integer
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              description: Invalid credentials
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+            500:
+              $ref: '#/components/responses/500'
+        """
+        try:
+            credentials = login_schema.load(request.json)
+            username = credentials["username"]
+            password = credentials["password"]
+            
+            # Authenticate user
+            user = security_manager.auth_user_db(username, password)
+            if not user:
+                return self.response_401(message="Invalid credentials")
+                
+            if not user.is_active:
+                return self.response_401(message="User account is inactive")
+            
+            # Generate JWT tokens
+            access_token, refresh_token, expires_in = self._generate_jwt_tokens(user)
+            
+            return self.response(200, 
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_in=expires_in
+            )
+            
+        except ValidationError as error:
+            return self.response_400(message=error.messages)
+        except Exception as error:
+            logger.exception("Error during JWT login")
+            return self.response_500(message="Internal server error during login")
+
+    @expose("/refresh/", methods=("POST",))
+    @event_logger.log_this
+    @safe
+    @statsd_metrics
+    def refresh(self) -> Response:
+        """Use the refresh token to get a new JWT access token.
+        ---
+        post:
+          summary: Use the refresh token to get a new JWT access token
+          requestBody:
+            description: Refresh token
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    refresh_token:
+                      type: string
+                  required:
+                    - refresh_token
+          responses:
+            200:
+              description: Token refresh successful
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      expires_in:
+                        type: integer
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              description: Invalid or expired refresh token
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+            500:
+              $ref: '#/components/responses/500'
+        """
+        try:
+            data = refresh_token_schema.load(request.json)
+            refresh_token = data["refresh_token"]
+            
+            # Validate refresh token
+            user = self._validate_refresh_token(refresh_token)
+            if not user:
+                return self.response_401(message="Invalid or expired refresh token")
+                
+            if not user.is_active:
+                return self.response_401(message="User account is inactive")
+            
+            # Generate new access token
+            access_token = self._generate_access_token(user)
+            expires_in = current_app.config.get('JWT_ACCESS_TOKEN_EXPIRES', 3600)
+            
+            return self.response(200,
+                access_token=access_token,
+                expires_in=expires_in
+            )
+            
+        except ValidationError as error:
+            return self.response_400(message=error.messages)
+        except Exception as error:
+            logger.exception("Error during token refresh")
+            return self.response_500(message="Internal server error during token refresh")
 
     @expose("/guest_token/", methods=("POST",))
     @event_logger.log_this
@@ -172,3 +339,71 @@ class SecurityRestApi(BaseSupersetApi):
             return self.response_400(message=error.message)
         except ValidationError as error:
             return self.response_400(message=error.messages)
+
+    def _generate_jwt_tokens(self, user) -> tuple[str, str, int]:
+        """Generate JWT access and refresh tokens for a user."""
+        access_token = self._generate_access_token(user)
+        refresh_token = self._generate_refresh_token(user)
+        expires_in = current_app.config.get('JWT_ACCESS_TOKEN_EXPIRES', 3600)
+        return access_token, refresh_token, expires_in
+
+    def _generate_access_token(self, user) -> str:
+        """Generate JWT access token for a user."""
+        secret_key = current_app.config.get('JWT_SECRET_KEY') or current_app.config['SECRET_KEY']
+        algorithm = current_app.config.get('JWT_ALGORITHM', 'HS256')
+        expires_in = current_app.config.get('JWT_ACCESS_TOKEN_EXPIRES', 3600)
+        
+        now = datetime.utcnow()
+        payload = {
+            'user_id': user.id,
+            'username': user.username,
+            'iat': now,
+            'exp': now + timedelta(seconds=expires_in),
+            'type': 'access'
+        }
+        
+        return jwt.encode(payload, secret_key, algorithm=algorithm)
+
+    def _generate_refresh_token(self, user) -> str:
+        """Generate JWT refresh token for a user."""
+        secret_key = current_app.config.get('JWT_SECRET_KEY') or current_app.config['SECRET_KEY']
+        algorithm = current_app.config.get('JWT_ALGORITHM', 'HS256')
+        expires_in = current_app.config.get('JWT_REFRESH_TOKEN_EXPIRES', 30 * 24 * 3600)  # 30 days
+        
+        now = datetime.utcnow()
+        payload = {
+            'user_id': user.id,
+            'username': user.username,
+            'iat': now,
+            'exp': now + timedelta(seconds=expires_in),
+            'type': 'refresh'
+        }
+        
+        return jwt.encode(payload, secret_key, algorithm=algorithm)
+
+    def _validate_refresh_token(self, token: str):
+        """Validate refresh token and return user if valid."""
+        try:
+            secret_key = current_app.config.get('JWT_SECRET_KEY') or current_app.config['SECRET_KEY']
+            algorithm = current_app.config.get('JWT_ALGORITHM', 'HS256')
+            
+            payload = jwt.decode(
+                token,
+                secret_key,
+                algorithms=[algorithm],
+                options={"verify_exp": True}
+            )
+            
+            # Check if it's a refresh token
+            if payload.get('type') != 'refresh':
+                return None
+                
+            user_id = payload.get('user_id')
+            if not user_id:
+                return None
+                
+            user = security_manager.get_user_by_id(user_id)
+            return user
+            
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+            return None
