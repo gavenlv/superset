@@ -18,18 +18,20 @@
 """
 Apex Logging Module
 
-Provides enterprise-grade structured logging capabilities for Superset,
-optimized for cloud platforms like GCP.
+Advanced logging functionality for Superset with structured output,
+performance monitoring, and cloud platform compatibility.
 """
 
-from superset.apex.logging.formatters import GCPJsonFormatter
-from superset.apex.logging.config import get_logging_config, setup_logging, get_environment
-from superset.apex.logging.query_logger import create_query_logger
+from .config import LoggingConfig, setup_production_logging, setup_development_logging
+from .query_logger import QueryLogger, create_query_logger
+from .formatters import GCPJsonFormatter, StandardFormatter
 
 __all__ = [
+    "LoggingConfig",
+    "setup_production_logging", 
+    "setup_development_logging",
+    "QueryLogger",
+    "create_query_logger",
     "GCPJsonFormatter",
-    "get_logging_config", 
-    "setup_logging",
-    "get_environment",
-    "create_query_logger"
+    "StandardFormatter"
 ] 

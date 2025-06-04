@@ -23,235 +23,335 @@ Provides logging configuration management for different environments.
 
 import logging.config
 import os
+import time
 from typing import Dict, Any, Optional
 
 from superset.apex.logging.formatters import GCPJsonFormatter, StandardFormatter
 
 
-class LoggingConfigBuilder:
+def setup_sqlalchemy_statements(logger):
     """
-    Builder class for creating logging configurations.
+    Set up SQLAlchemy statement logging with parameter interpolation.
     
-    Supports different environments and output formats with sensible defaults.
+    Args:
+        logger: Logger instance to use for SQL statement logging
+    """
+    try:
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        @event.listens_for(Engine, "before_cursor_execute")
+        def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            try:
+                if not hasattr(conn, 'info'):
+                    conn.info = {}
+                conn.info.setdefault('query_start_time', []).append(time.time())
+                conn.info.setdefault('current_statement', statement)
+                conn.info.setdefault('current_parameters', parameters)
+            except Exception:
+                pass  # Silently handle any errors
+
+        @event.listens_for(Engine, "after_cursor_execute")
+        def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            try:
+                if hasattr(conn, 'info') and conn.info.get('query_start_time'):
+                    total = time.time() - conn.info['query_start_time'].pop()
+                    
+                    # Only log data source queries (not metadata queries)
+                    if hasattr(conn, 'engine') and hasattr(conn.engine, 'url'):
+                        engine_url = str(conn.engine.url)
+                        if not any(pattern in engine_url.lower() for pattern in [
+                            'superset.db', '/superset', 'host.docker.internal'
+                        ]):
+                            logger.info(
+                                f"Data source query executed in {total * 1000:.2f}ms",
+                                extra={
+                                    'event_type': 'data_source_query',
+                                    'sql_original': statement,
+                                    'sql_parameters': parameters,
+                                    'execution_time_ms': round(total * 1000, 2),
+                                    'database_url': engine_url
+                                }
+                            )
+            except Exception:
+                pass  # Silently handle any errors
+
+    except ImportError:
+        pass  # SQLAlchemy not available
+
+
+class LoggingConfig:
+    """
+    Centralized logging configuration management.
+    
+    Provides different logging configurations for various environments
+    and deployment scenarios.
     """
     
-    def __init__(self):
-        self.config = {
+    @staticmethod
+    def get_gcp_config(
+        log_level: str = "INFO",
+        log_file: Optional[str] = None,
+        max_bytes: int = 100 * 1024 * 1024,  # 100MB
+        backup_count: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Get GCP-compatible logging configuration.
+        
+        Args:
+            log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+            log_file: Path to log file (optional)
+            max_bytes: Maximum size of log file before rotation
+            backup_count: Number of backup files to keep
+            
+        Returns:
+            Dictionary containing logging configuration
+        """
+        
+        config = {
             'version': 1,
             'disable_existing_loggers': False,
-            'formatters': {},
-            'handlers': {},
-            'loggers': {},
-            'root': {}
+            'formatters': {
+                'gcp_json': {
+                    '()': GCPJsonFormatter,
+                    'datefmt': '%Y-%m-%dT%H:%M:%S.%fZ'
+                },
+                'standard': {
+                    '()': StandardFormatter,
+                }
+            },
+            'handlers': {
+                'console': {
+                    'level': log_level,
+                    'class': 'logging.StreamHandler',
+                    'formatter': 'gcp_json',
+                    'stream': 'ext://sys.stdout'
+                }
+            },
+            'loggers': {
+                'superset': {
+                    'level': log_level,
+                    'handlers': ['console'],
+                    'propagate': False
+                },
+                'superset.sql_lab': {
+                    'level': log_level,
+                    'handlers': ['console'],
+                    'propagate': False
+                },
+                'sqlalchemy.engine': {
+                    'level': log_level,
+                    'handlers': ['console'],
+                    'propagate': False
+                },
+                'flask_appbuilder': {
+                    'level': 'WARNING',
+                    'handlers': ['console'],
+                    'propagate': False
+                }
+            },
+            'root': {
+                'level': log_level,
+                'handlers': ['console']
+            }
         }
-    
-    def with_gcp_json_formatter(self, name: str = 'gcp_json') -> 'LoggingConfigBuilder':
-        """Add GCP JSON formatter to the configuration."""
-        self.config['formatters'][name] = {
-            '()': GCPJsonFormatter,
-            'datefmt': '%Y-%m-%dT%H:%M:%S.%fZ'
-        }
-        return self
-    
-    def with_standard_formatter(self, name: str = 'standard') -> 'LoggingConfigBuilder':
-        """Add standard text formatter to the configuration."""
-        self.config['formatters'][name] = {
-            '()': StandardFormatter
-        }
-        return self
-    
-    def with_console_handler(
-        self, 
-        name: str = 'console', 
-        level: str = 'INFO', 
-        formatter: str = 'gcp_json'
-    ) -> 'LoggingConfigBuilder':
-        """Add console handler to the configuration."""
-        self.config['handlers'][name] = {
-            'class': 'logging.StreamHandler',
-            'level': level,
-            'formatter': formatter,
-            'stream': 'ext://sys.stdout'
-        }
-        return self
-    
-    def with_file_handler(
-        self,
-        name: str = 'file',
-        level: str = 'INFO',
-        formatter: str = 'gcp_json',
-        filename: str = '/tmp/superset.log',
-        max_bytes: int = 10485760,  # 10MB
-        backup_count: int = 5
-    ) -> 'LoggingConfigBuilder':
-        """Add rotating file handler to the configuration."""
-        self.config['handlers'][name] = {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'level': level,
-            'formatter': formatter,
-            'filename': filename,
-            'maxBytes': max_bytes,
-            'backupCount': backup_count
-        }
-        return self
-    
-    def with_logger(
-        self,
-        name: str,
-        level: str = 'INFO',
-        handlers: list = None,
-        propagate: bool = False
-    ) -> 'LoggingConfigBuilder':
-        """Add logger configuration."""
-        if handlers is None:
-            handlers = ['console']
         
-        self.config['loggers'][name] = {
-            'level': level,
-            'handlers': handlers,
-            'propagate': propagate
-        }
-        return self
-    
-    def with_root_logger(
-        self,
-        level: str = 'INFO',
-        handlers: list = None
-    ) -> 'LoggingConfigBuilder':
-        """Configure root logger."""
-        if handlers is None:
-            handlers = ['console']
+        # Add file handler if log file is specified
+        if log_file:
+            # Use a safer file handler for Windows
+            config['handlers']['file'] = {
+                'level': log_level,
+                'class': 'logging.handlers.RotatingFileHandler',
+                'filename': log_file,
+                'maxBytes': max_bytes,
+                'backupCount': backup_count,
+                'formatter': 'gcp_json',
+                'encoding': 'utf-8',
+                'delay': True  # Don't open file until first log
+            }
+            
+            # Add file handler to all loggers
+            for logger_config in config['loggers'].values():
+                if 'file' not in logger_config['handlers']:
+                    logger_config['handlers'].append('file')
+            config['root']['handlers'].append('file')
         
-        self.config['root'] = {
-            'level': level,
-            'handlers': handlers
-        }
-        return self
+        return config
     
-    def build(self) -> Dict[str, Any]:
-        """Build and return the logging configuration."""
-        return self.config
+    @staticmethod
+    def get_development_config(
+        log_level: str = "DEBUG",
+        log_file: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get development-friendly logging configuration.
+        
+        Args:
+            log_level: Logging level
+            log_file: Path to log file (optional)
+            
+        Returns:
+            Dictionary containing logging configuration
+        """
+        
+        config = {
+            'version': 1,
+            'disable_existing_loggers': False,
+            'formatters': {
+                'standard': {
+                    '()': StandardFormatter,
+                },
+                'gcp_json': {
+                    '()': GCPJsonFormatter,
+                    'datefmt': '%Y-%m-%dT%H:%M:%S.%fZ'
+                }
+            },
+            'handlers': {
+                'console': {
+                    'level': log_level,
+                    'class': 'logging.StreamHandler',
+                    'formatter': 'standard',
+                    'stream': 'ext://sys.stdout'
+                }
+            },
+            'loggers': {
+                'superset': {
+                    'level': log_level,
+                    'handlers': ['console'],
+                    'propagate': False
+                },
+                'superset.sql_lab': {
+                    'level': log_level,
+                    'handlers': ['console'],
+                    'propagate': False
+                },
+                'sqlalchemy.engine': {
+                    'level': 'INFO',
+                    'handlers': ['console'],
+                    'propagate': False
+                }
+            },
+            'root': {
+                'level': log_level,
+                'handlers': ['console']
+            }
+        }
+        
+        # Add file handler if specified
+        if log_file:
+            config['handlers']['file'] = {
+                'level': log_level,
+                'class': 'logging.FileHandler',
+                'filename': log_file,
+                'formatter': 'gcp_json',
+                'encoding': 'utf-8'
+            }
+            
+            # Add file handler to all loggers
+            for logger_config in config['loggers'].values():
+                if 'file' not in logger_config['handlers']:
+                    logger_config['handlers'].append('file')
+            config['root']['handlers'].append('file')
+        
+        return config
+    
+    @staticmethod
+    def setup_logging(
+        environment: str = "production",
+        log_level: str = "INFO",
+        log_file: Optional[str] = None,
+        **kwargs
+    ) -> None:
+        """
+        Setup logging configuration based on environment.
+        
+        Args:
+            environment: Environment name (production, development, testing)
+            log_level: Logging level
+            log_file: Path to log file
+            **kwargs: Additional configuration options
+        """
+        
+        try:
+            if environment.lower() in ['development', 'dev', 'debug']:
+                config = LoggingConfig.get_development_config(log_level, log_file)
+            else:
+                config = LoggingConfig.get_gcp_config(log_level, log_file, **kwargs)
+            
+            # Apply the configuration
+            logging.config.dictConfig(config)
+            
+            # Setup SQLAlchemy event handlers
+            logger = logging.getLogger('superset.sql_lab')
+            setup_sqlalchemy_statements(logger)
+            
+            # Log successful configuration
+            logger = logging.getLogger('superset.apex.logging')
+            logger.info(
+                f"Logging configured for {environment} environment",
+                extra={
+                    'event_type': 'logging_setup',
+                    'environment': environment,
+                    'log_level': log_level,
+                    'log_file': log_file,
+                    'has_file_handler': log_file is not None
+                }
+            )
+            
+        except Exception as e:
+            # Fallback to basic console logging if configuration fails
+            logging.basicConfig(
+                level=getattr(logging, log_level.upper(), logging.INFO),
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[logging.StreamHandler()]
+            )
+            
+            logger = logging.getLogger('superset.apex.logging')
+            logger.error(
+                f"Failed to configure logging: {e}",
+                extra={
+                    'event_type': 'logging_setup_error',
+                    'error': str(e),
+                    'environment': environment
+                }
+            )
 
 
-def _ensure_log_directory(log_file_path: str) -> bool:
+def setup_query_logging() -> None:
     """
-    Ensure the log directory exists and is writable.
+    Setup query logging configuration.
     
-    Args:
-        log_file_path: Path to the log file
-        
-    Returns:
-        True if directory exists and is writable, False otherwise
+    This function should be called during Superset initialization to ensure
+    query logging is properly configured.
     """
     try:
-        log_dir = os.path.dirname(log_file_path)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
+        logger = logging.getLogger('superset.sql_lab')
+        setup_sqlalchemy_statements(logger)
         
-        # Test if we can write to the directory
-        test_file = os.path.join(log_dir or '.', '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
-        return True
-    except (OSError, IOError, PermissionError):
-        return False
-
-
-def get_logging_config(
-    environment: str = 'production',
-    log_file_path: Optional[str] = None,
-    enable_file_logging: bool = True
-) -> Dict[str, Any]:
-    """
-    Get logging configuration for different environments.
-    
-    Args:
-        environment: Environment type ('production', 'development', 'test')
-        log_file_path: Path for log file. Defaults to /tmp/superset.log
-        enable_file_logging: Whether to enable file logging
-        
-    Returns:
-        Logging configuration dictionary
-    """
-    builder = LoggingConfigBuilder()
-    
-    if environment == 'development':
-        # Development: Use standard formatter for console readability
-        builder = (builder
-                  .with_standard_formatter()
-                  .with_gcp_json_formatter()
-                  .with_console_handler(formatter='standard')
-                  )
-    else:
-        # Production/Test: Use JSON formatter for structured logging
-        builder = (builder
-                  .with_gcp_json_formatter()
-                  .with_standard_formatter()
-                  .with_console_handler(formatter='gcp_json')
-                  )
-    
-    # Add file handler if enabled and possible
-    handlers = ['console']
-    if enable_file_logging:
-        file_path = log_file_path or '/tmp/superset.log'
-        
-        # Check if we can write to the log file location
-        if _ensure_log_directory(file_path):
-            try:
-                builder = builder.with_file_handler(filename=file_path, formatter='gcp_json')
-                handlers.append('file')
-            except Exception:
-                # If file handler fails, just use console
-                pass
-    
-    # Configure loggers
-    builder = (builder
-              .with_logger('superset', handlers=handlers)
-              .with_logger('sqlalchemy.engine', handlers=handlers)
-              .with_logger('werkzeug', level='WARNING', handlers=['console'])
-              .with_root_logger(handlers=['console'])
-              )
-    
-    return builder.build()
-
-
-def setup_logging(
-    environment: str = 'production',
-    log_file_path: Optional[str] = None,
-    enable_file_logging: bool = True
-) -> None:
-    """
-    Set up logging configuration.
-    
-    Args:
-        environment: Environment type ('production', 'development', 'test')
-        log_file_path: Path for log file
-        enable_file_logging: Whether to enable file logging
-    """
-    try:
-        config = get_logging_config(
-            environment=environment,
-            log_file_path=log_file_path,
-            enable_file_logging=enable_file_logging
+        logger.info(
+            "Query logging setup completed",
+            extra={'event_type': 'query_logging_setup'}
         )
-        
-        logging.config.dictConfig(config)
-        
-        # Log success message
-        logger = logging.getLogger('superset.apex.logging')
-        logger.info(f"Apex logging initialized for environment: {environment}")
-        
     except Exception as e:
-        # Fallback to basic console logging if configuration fails
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[logging.StreamHandler()]
-        )
-        
         logger = logging.getLogger('superset.apex.logging')
-        logger.warning(f"Failed to setup advanced logging, using basic config: {e}")
+        logger.error(
+            f"Failed to setup query logging: {e}",
+            extra={
+                'event_type': 'query_logging_setup_error',
+                'error': str(e)
+            }
+        )
+
+
+# Convenience functions for common configurations
+def setup_production_logging(log_file: str = "/tmp/superset.log") -> None:
+    """Setup production logging with GCP JSON format."""
+    LoggingConfig.setup_logging("production", "INFO", log_file)
+
+
+def setup_development_logging(log_file: Optional[str] = None) -> None:
+    """Setup development logging with readable format."""
+    LoggingConfig.setup_logging("development", "DEBUG", log_file)
 
 
 def get_environment() -> str:

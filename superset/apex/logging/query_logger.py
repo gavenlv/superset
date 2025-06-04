@@ -22,8 +22,13 @@ Provides specialized logging for SQL queries with structured output.
 """
 
 import logging
+import re
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Callable
+
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 
 class QueryLogger:
@@ -36,6 +41,154 @@ class QueryLogger:
     
     def __init__(self, logger_name: str = 'superset.sql_lab'):
         self.logger = logging.getLogger(logger_name)
+        self._setup_complete = False
+        self._setup_query_capture()
+    
+    def _setup_query_capture(self):
+        """Set up query capture for data source queries."""
+        if self._setup_complete:
+            return
+            
+        try:
+            from sqlalchemy import event
+            from sqlalchemy.engine import Engine
+            
+            @event.listens_for(Engine, "before_cursor_execute")
+            def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+                # Store query start time and info for data source connections
+                if self._is_data_source_connection(conn):
+                    if not hasattr(conn, 'info'):
+                        conn.info = {}
+                    conn.info['query_start_time'] = time.time()
+                    conn.info['query_statement'] = statement
+                    conn.info['query_parameters'] = parameters
+
+            @event.listens_for(Engine, "after_cursor_execute")
+            def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+                # Log completed data source queries
+                if self._is_data_source_connection(conn) and hasattr(conn, 'info'):
+                    start_time = conn.info.get('query_start_time')
+                    if start_time:
+                        execution_time = (time.time() - start_time) * 1000  # Convert to ms
+                        self._log_data_source_query(
+                            statement=statement,
+                            parameters=parameters,
+                            execution_time_ms=execution_time,
+                            connection=conn
+                        )
+            
+            self._setup_complete = True
+            
+        except ImportError:
+            self.logger.warning("SQLAlchemy not available for query capture")
+        except Exception as e:
+            self.logger.error(f"Failed to setup query capture: {e}")
+
+    def _is_data_source_connection(self, conn) -> bool:
+        """Check if this is a data source connection (not metadata)."""
+        try:
+            if not hasattr(conn, 'engine') or not hasattr(conn.engine, 'url'):
+                return False
+                
+            url_str = str(conn.engine.url).lower()
+            
+            # Skip Superset metadata database patterns
+            metadata_patterns = [
+                'superset.db',      # SQLite default
+                '/superset',        # Common database name
+                'superset_meta',    # Alternative naming
+                'host.docker.internal',  # Docker setups often use this for metadata
+            ]
+            
+            return not any(pattern in url_str for pattern in metadata_patterns)
+            
+        except Exception:
+            return False
+
+    def _get_database_info(self, conn) -> Dict[str, str]:
+        """Extract database information from connection."""
+        try:
+            if hasattr(conn, 'engine') and hasattr(conn.engine, 'url'):
+                url = conn.engine.url
+                return {
+                    'database_name': url.database or 'unknown',
+                    'database_type': url.drivername or 'unknown',
+                    'host': url.host or 'unknown'
+                }
+        except Exception:
+            pass
+        
+        return {
+            'database_name': 'unknown',
+            'database_type': 'unknown', 
+            'host': 'unknown'
+        }
+
+    def _interpolate_parameters(self, sql: str, params: Any) -> str:
+        """Create executable SQL by interpolating parameters."""
+        if not params:
+            return sql
+
+        try:
+            # Handle dictionary parameters
+            if isinstance(params, dict):
+                interpolated = sql
+                for key, value in params.items():
+                    placeholder = f"%({key})s"
+                    if placeholder in interpolated:
+                        if isinstance(value, str):
+                            interpolated = interpolated.replace(placeholder, f"'{value}'")
+                        elif value is None:
+                            interpolated = interpolated.replace(placeholder, "NULL")
+                        else:
+                            interpolated = interpolated.replace(placeholder, str(value))
+                return interpolated
+            
+            # Handle tuple/list parameters
+            elif isinstance(params, (tuple, list)):
+                interpolated = sql
+                # Replace ? with %s for consistent handling
+                interpolated = interpolated.replace('?', '%s')
+                
+                # Replace %s placeholders
+                for value in params:
+                    if '%s' in interpolated:
+                        if isinstance(value, str):
+                            interpolated = interpolated.replace('%s', f"'{value}'", 1)
+                        elif value is None:
+                            interpolated = interpolated.replace('%s', "NULL", 1)
+                        else:
+                            interpolated = interpolated.replace('%s', str(value), 1)
+                return interpolated
+            
+        except Exception:
+            pass
+        
+        # Fallback: return original SQL with parameters as comment
+        return f"{sql} /* Parameters: {params} */"
+
+    def _log_data_source_query(self, statement: str, parameters: Any, execution_time_ms: float, connection):
+        """Log a data source query with full context."""
+        db_info = self._get_database_info(connection)
+        executable_sql = self._interpolate_parameters(statement, parameters)
+        
+        query_context = {
+            'event_type': 'data_source_query',
+            'database_name': db_info['database_name'],
+            'database_type': db_info['database_type'],
+            'database_host': db_info['host'],
+            'execution_time_ms': round(execution_time_ms, 2),
+            'sql_original': statement,
+            'sql_parameters': parameters,
+            'sql_executable': executable_sql,
+            'query_length': len(statement) if statement else 0,
+            'timestamp': datetime.utcnow().isoformat(),
+        }
+        
+        self.logger.info(
+            f"Data source query: {db_info['database_name']} ({execution_time_ms:.2f}ms)",
+            extra=query_context
+        )
     
     def log_query_execution(
         self,
@@ -52,80 +205,83 @@ class QueryLogger:
         """
         Log SQL query execution with structured data.
         
-        Args:
-            query: The SQL query being executed
-            database: Database object
-            schema: Schema name
-            client: Client identifier
-            security_manager: Security manager for user context
-            log_params: Additional logging parameters
-            execution_time_ms: Query execution time in milliseconds
-            row_count: Number of rows returned
-            error: Error message if query failed
+        This is the main entry point for QUERY_LOGGER functionality.
         """
-        # Get current user info
-        user_info = self._get_user_info(security_manager)
+        # Get user context
+        user_info = self._extract_user_info(security_manager)
         
-        # Create structured log entry for SQL query
-        query_info = {
-            'event_type': 'sql_query_execution',
+        # Create base query context
+        query_context = {
+            'event_type': 'sql_lab_query',
             'user': user_info,
-            'database': self._get_database_name(database),
+            'database': self._extract_database_name(database),
             'schema': schema or 'default',
-            'client': client or 'unknown',
+            'client': client or 'sql_lab',
             'query_length': len(query) if query else 0,
-            'sql_query': query,  # This will be properly escaped in JSON
-            'execution_time': datetime.utcnow().isoformat(),
+            'sql_query': query,
+            'timestamp': datetime.utcnow().isoformat(),
         }
         
-        # Add performance metrics if available
+        # Add performance metrics
         if execution_time_ms is not None:
-            query_info['execution_time_ms'] = execution_time_ms
+            query_context['execution_time_ms'] = execution_time_ms
         
         if row_count is not None:
-            query_info['row_count'] = row_count
+            query_context['row_count'] = row_count
         
-        # Add error information if present
+        # Add status and error info
         if error:
-            query_info['error'] = error
-            query_info['status'] = 'failed'
+            query_context['status'] = 'failed'
+            query_context['error'] = error
         else:
-            query_info['status'] = 'success'
+            query_context['status'] = 'success'
         
-        # Add any additional log parameters
+        # Add additional parameters
         if log_params:
-            query_info.update(log_params)
+            query_context.update(log_params)
         
-        # Log with appropriate level based on status
+        # Log with appropriate level
         if error:
             self.logger.error(
-                f"SQL query failed for user {user_info} on database {query_info['database']}",
-                extra=query_info
+                f"SQL Lab query failed: {user_info} on {query_context['database']}",
+                extra=query_context
             )
         else:
             self.logger.info(
-                f"SQL query executed by {user_info} on database {query_info['database']}",
-                extra=query_info
+                f"SQL Lab query: {user_info} on {query_context['database']}",
+                extra=query_context
             )
     
-    def _get_user_info(self, security_manager: Optional[Any]) -> str:
-        """Extract user information from security manager."""
+    def _extract_user_info(self, security_manager: Optional[Any]) -> str:
+        """Extract user information."""
         try:
+            # Try security manager first
             if security_manager and hasattr(security_manager, 'current_user'):
-                current_user = security_manager.current_user
-                if current_user and hasattr(current_user, 'username'):
-                    return current_user.username
+                user = security_manager.current_user
+                if user and hasattr(user, 'username'):
+                    return user.username
+            
+            # Try Flask-Login
+            from flask_login import current_user
+            if hasattr(current_user, 'username'):
+                return current_user.username
+                
         except Exception:
-            # Silently handle any errors in user extraction
             pass
         
         return "anonymous"
     
-    def _get_database_name(self, database: Optional[Any]) -> str:
-        """Extract database name from database object."""
+    def _extract_database_name(self, database: Optional[Any]) -> str:
+        """Extract database name from various input types."""
         try:
-            if database and hasattr(database, 'database_name'):
-                return database.database_name
+            if database:
+                if hasattr(database, 'database_name'):
+                    return database.database_name
+                elif isinstance(database, str):
+                    # Extract from URL string
+                    if '/' in database:
+                        return database.split('/')[-1] or 'unknown'
+                    return database
         except Exception:
             pass
         
@@ -136,9 +292,6 @@ def create_query_logger(logger_name: str = 'superset.sql_lab') -> Callable:
     """
     Create a query logger function compatible with Superset's QUERY_LOGGER interface.
     
-    Args:
-        logger_name: Name of the logger to use
-        
     Returns:
         Function that can be used as QUERY_LOGGER in Superset configuration
     """
@@ -154,9 +307,6 @@ def create_query_logger(logger_name: str = 'superset.sql_lab') -> Callable:
     ):
         """
         Query logger function compatible with Superset's QUERY_LOGGER interface.
-        
-        This function properly handles multi-line SQL queries without breaking
-        the JSON log structure.
         """
         query_logger.log_query_execution(
             query=query,

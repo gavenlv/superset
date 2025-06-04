@@ -27,7 +27,11 @@ import re
 import traceback
 from typing import Any, Dict, Optional
 
-from flask import has_request_context, request
+try:
+    from flask import has_request_context, request
+except ImportError:
+    has_request_context = lambda: False
+    request = None
 
 
 class GCPJsonFormatter(logging.Formatter):
@@ -44,71 +48,196 @@ class GCPJsonFormatter(logging.Formatter):
     - ISO 8601 timestamp format
     - Structured fields for easy querying and filtering
     - Exception handling with proper formatting
-    - Enhanced HTTP request context for debugging
+    - Windows compatibility for file paths and line endings
     """
     
     # Fields that should not be included in the extra fields
     EXCLUDED_FIELDS = {
-        'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 
-        'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
-        'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-        'thread', 'threadName', 'processName', 'process', 'getMessage'
+        'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
+        'module', 'exc_info', 'exc_text', 'stack_info', 'lineno', 'funcName',
+        'created', 'msecs', 'relativeCreated', 'thread', 'threadName',
+        'processName', 'process', 'message', 'asctime'
     }
-
-    def _get_request_info(self) -> Dict[str, Any]:
+    
+    def format(self, record: logging.LogRecord) -> str:
         """
-        Get relevant information from the current request context.
-        
-        Returns:
-            Dictionary containing request information if available
-        """
-        if not has_request_context():
-            return {}
-            
-        return {
-            'request_path': request.path,
-            'request_method': request.method,
-            'request_url': request.url,
-            'request_remote_addr': request.remote_addr,
-            'request_user_agent': str(request.user_agent),
-            'request_args': dict(request.args),
-            'request_endpoint': request.endpoint,
-            'request_referrer': request.referrer,
-        }
-
-    def _format_exception(self, exc_info) -> Dict[str, Any]:
-        """
-        Format exception information in a structured way.
+        Format the log record as a JSON string.
         
         Args:
-            exc_info: Exception information tuple
+            record: The LogRecord to format
             
         Returns:
-            Dictionary containing formatted exception details
+            JSON formatted log entry
         """
-        if not exc_info:
-            return {}
-            
-        exc_type, exc_value, exc_tb = exc_info
+        # Create the base log entry structure
+        log_entry = {
+            'timestamp': self.formatTime(record),
+            'severity': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno,
+        }
         
-        return {
-            'error_type': exc_type.__name__ if exc_type else None,
-            'error_message': str(exc_value),
-            'error_traceback': traceback.format_exception(*exc_info),
-            'error_location': {
-                'file': exc_tb.tb_frame.f_code.co_filename if exc_tb else None,
-                'line': exc_tb.tb_lineno if exc_tb else None,
-                'function': exc_tb.tb_frame.f_code.co_name if exc_tb else None
+        # Add process information
+        if record.process:
+            log_entry['process_id'] = record.process
+        if record.thread:
+            log_entry['thread_id'] = record.thread
+        
+        # Handle Windows file paths properly
+        if record.pathname:
+            # Normalize Windows paths for consistency
+            normalized_path = record.pathname.replace('\\', '/')
+            log_entry['file_path'] = normalized_path
+        
+        # Add exception information if present
+        if record.exc_info:
+            log_entry.update(self._format_exception(record))
+        
+        # Add request context if available
+        if record.levelno >= logging.WARNING:
+            request_context = self._get_request_context()
+            if request_context:
+                log_entry['request'] = request_context
+        
+        # Enhance SQL logging
+        if self._is_sql_record(record):
+            self._enhance_sql_logging(log_entry, record)
+        
+        # Add extra fields from the record
+        self._add_extra_fields(log_entry, record)
+        
+        # Return JSON string with proper escaping
+        try:
+            return json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))
+        except (TypeError, ValueError) as e:
+            # Fallback if JSON serialization fails
+            fallback_entry = {
+                'timestamp': self.formatTime(record),
+                'severity': 'ERROR',
+                'logger': 'formatter',
+                'message': f'JSON serialization failed: {str(e)}',
+                'original_message': str(record.getMessage()),
+                'error': str(e)
+            }
+            return json.dumps(fallback_entry, ensure_ascii=False, separators=(',', ':'))
+    
+    def _add_extra_fields(self, log_entry: Dict[str, Any], record: logging.LogRecord) -> None:
+        """Add extra fields from the log record."""
+        for key, value in record.__dict__.items():
+            if key not in self.EXCLUDED_FIELDS:
+                # Handle multi-line content (like SQL queries) properly
+                if isinstance(value, str):
+                    # Normalize line endings for Windows compatibility
+                    normalized_value = value.replace('\r\n', '\n').replace('\r', '\n')
+                    log_entry[key] = normalized_value
+                else:
+                    # Handle non-serializable objects
+                    try:
+                        json.dumps(value)  # Test if serializable
+                        log_entry[key] = value
+                    except (TypeError, ValueError):
+                        log_entry[key] = str(value)
+
+    def formatTime(self, record, datefmt=None):
+        """Format timestamp with proper microsecond support."""
+        from datetime import datetime
+        dt = datetime.fromtimestamp(record.created)
+        if datefmt:
+            # Handle %f in datefmt which is not supported by time.strftime
+            if '%f' in datefmt:
+                return dt.strftime(datefmt)
+            else:
+                return dt.strftime(datefmt)
+        return dt.isoformat() + 'Z'
+
+    def _format_exception(self, record: logging.LogRecord) -> Dict[str, Any]:
+        """Format exception information."""
+        exc_info = {
+            'exception': {
+                'type': record.exc_info[0].__name__ if record.exc_info[0] else 'Unknown',
+                'message': str(record.exc_info[1]) if record.exc_info[1] else 'Unknown error',
+                'traceback': self.formatException(record).replace('\r\n', '\n').replace('\r', '\n')
             }
         }
+        
+        # Add exception location if available
+        if record.exc_info[2]:
+            tb = record.exc_info[2]
+            while tb.tb_next:
+                tb = tb.tb_next
+            exc_info['exception']['file'] = tb.tb_frame.f_code.co_filename.replace('\\', '/')
+            exc_info['exception']['line'] = tb.tb_lineno
+            exc_info['exception']['function'] = tb.tb_frame.f_code.co_name
+        
+        return exc_info
 
-    def _interpolate_sql(self, sql: str, params: Dict[str, Any]) -> str:
+    def _get_request_context(self) -> Optional[Dict[str, Any]]:
+        """Get Flask request context information."""
+        if not has_request_context() or request is None:
+            return None
+        
+        try:
+            context = {
+                'method': request.method,
+                'path': request.path,
+                'url': request.url,
+                'remote_addr': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', 'Unknown')
+            }
+            
+            # Add query parameters if present
+            if request.args:
+                context['query_params'] = dict(request.args)
+            
+            # Add referrer if present
+            if request.referrer:
+                context['referrer'] = request.referrer
+            
+            # Add endpoint if available
+            if request.endpoint:
+                context['endpoint'] = request.endpoint
+            
+            return context
+            
+        except Exception:
+            return None
+
+    def _is_sql_record(self, record: logging.LogRecord) -> bool:
+        """Check if this is a SQL-related log record."""
+        return (
+            'sql' in record.name.lower() or
+            hasattr(record, 'sql_original') or
+            hasattr(record, 'statement') or
+            hasattr(record, 'event_type') and 'query' in getattr(record, 'event_type', '').lower()
+        )
+
+    def _enhance_sql_logging(self, log_entry: Dict[str, Any], record: logging.LogRecord) -> None:
+        """Enhance SQL logging with executable queries."""
+        # Check for SQL statement in various possible attributes
+        sql_statement = getattr(record, 'sql_original', None) or getattr(record, 'statement', None)
+        sql_params = getattr(record, 'sql_parameters', None) or getattr(record, 'parameters', None)
+        
+        if sql_statement:
+            log_entry['sql_original'] = sql_statement
+            
+            if sql_params:
+                log_entry['sql_parameters'] = sql_params
+                # Create executable SQL
+                executable_sql = self._interpolate_sql(sql_statement, sql_params)
+                log_entry['sql_executable'] = executable_sql
+            else:
+                log_entry['sql_executable'] = sql_statement
+
+    def _interpolate_sql(self, sql: str, params: Any) -> str:
         """
         Interpolate SQL parameters to create an executable SQL statement.
         
         Args:
             sql: The SQL statement with parameter placeholders
-            params: The parameters to interpolate
+            params: The parameters to interpolate (can be dict or tuple)
             
         Returns:
             An executable SQL statement with parameters interpolated
@@ -116,107 +245,95 @@ class GCPJsonFormatter(logging.Formatter):
         if not params:
             return sql
 
-        # Convert Python datetime objects to strings
-        processed_params = {}
-        for key, value in params.items():
-            if hasattr(value, 'isoformat'):  # datetime-like objects
-                processed_params[key] = f"'{value.isoformat()}'"
-            elif isinstance(value, str):
-                processed_params[key] = f"'{value}'"
-            elif value is None:
-                processed_params[key] = 'NULL'
-            else:
-                processed_params[key] = str(value)
-
-        # Replace %(name)s style parameters with their values
-        pattern = r'%\(([^)]+)\)s'
-        def replace(match):
-            param_name = match.group(1)
-            return processed_params.get(param_name, match.group(0))
-            
-        return re.sub(pattern, replace, sql)
-    
-    def format(self, record: logging.LogRecord) -> str:
-        """
-        Format a log record as a JSON string suitable for GCP Cloud Logging.
-        
-        Args:
-            record: The log record to format
-            
-        Returns:
-            JSON-formatted string with structured log data
-        """
-        # Create base log entry with standard fields
-        log_entry = self._create_base_entry(record)
-        
-        # Add exception information if present
-        if record.exc_info:
-            log_entry["exception"] = self._format_exception(record.exc_info)
-            # Add request context for errors
-            if record.levelno >= logging.ERROR:
-                log_entry["request"] = self._get_request_info()
-
-        # Handle SQL logging specially
-        if hasattr(record, 'statement') and hasattr(record, 'parameters'):
-            # For SQL queries, include both original and interpolated versions
-            log_entry['sql_original'] = record.statement
-            log_entry['sql_parameters'] = record.parameters
-            log_entry['sql_executable'] = self._interpolate_sql(record.statement, record.parameters)
-            
-        # Add extra fields from the record
-        self._add_extra_fields(log_entry, record)
-        
-        return json.dumps(log_entry, ensure_ascii=False, default=str)
-    
-    def _create_base_entry(self, record: logging.LogRecord) -> Dict[str, Any]:
-        """Create the base log entry with standard fields."""
-        entry = {
-            "timestamp": self.formatTime(record, self.datefmt),
-            "severity": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
-            "thread": record.thread,
-            "process": record.process,
-        }
-        
-        # Add request context for warnings and errors
-        if record.levelno >= logging.WARNING:
-            request_info = self._get_request_info()
-            if request_info:
-                entry["request"] = request_info
+        try:
+            # Handle tuple parameters
+            if isinstance(params, (list, tuple)):
+                # Replace ? placeholders with %s for consistent handling
+                sql = sql.replace('?', '%s')
+                processed_params = []
+                for value in params:
+                    if hasattr(value, 'isoformat'):  # datetime-like objects
+                        processed_params.append(f"'{value.isoformat()}'")
+                    elif isinstance(value, str):
+                        # Escape single quotes in strings
+                        escaped_value = value.replace("'", "''")
+                        processed_params.append(f"'{escaped_value}'")
+                    elif value is None:
+                        processed_params.append('NULL')
+                    else:
+                        processed_params.append(str(value))
                 
-        return entry
-    
-    def _add_extra_fields(self, log_entry: Dict[str, Any], record: logging.LogRecord) -> None:
-        """Add extra fields from the log record, handling multi-line content properly."""
-        for key, value in record.__dict__.items():
-            if key not in self.EXCLUDED_FIELDS:
-                # Handle multi-line content (like SQL queries) properly
-                if isinstance(value, str) and '\n' in value:
-                    log_entry[key] = value
-                else:
-                    log_entry[key] = value
+                return sql % tuple(processed_params)
 
-    def formatTime(self, record, datefmt=None):
-        from datetime import datetime
-        dt = datetime.fromtimestamp(record.created)
-        if datefmt:
-            return dt.strftime(datefmt)
-        return dt.isoformat()
+            # Handle dictionary parameters
+            elif isinstance(params, dict):
+                interpolated = sql
+                for key, value in params.items():
+                    placeholder = f"%({key})s"
+                    if placeholder in interpolated:
+                        if hasattr(value, 'isoformat'):  # datetime-like objects
+                            replacement = f"'{value.isoformat()}'"
+                        elif isinstance(value, str):
+                            # Escape single quotes in strings
+                            escaped_value = value.replace("'", "''")
+                            replacement = f"'{escaped_value}'"
+                        elif value is None:
+                            replacement = 'NULL'
+                        else:
+                            replacement = str(value)
+                        
+                        interpolated = interpolated.replace(placeholder, replacement)
+                
+                return interpolated
+
+        except Exception:
+            pass
+        
+        # Fallback: return original SQL with parameters as comment
+        return f"{sql}\n/* Parameters: {params} */"
 
 
 class StandardFormatter(logging.Formatter):
     """
-    Standard text formatter for local development and legacy systems.
+    Standard text formatter for development and debugging.
     
-    Provides a readable format for console output during development.
+    Provides human-readable log output with consistent formatting
+    and proper handling of multi-line messages.
     """
     
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ) 
+    def __init__(self, fmt=None, datefmt=None):
+        if fmt is None:
+            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        if datefmt is None:
+            datefmt = '%Y-%m-%d %H:%M:%S'
+        super().__init__(fmt, datefmt)
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """
+        Format the log record as a readable text string.
+        
+        Args:
+            record: The LogRecord to format
+            
+        Returns:
+            Formatted log message
+        """
+        # Get the basic formatted message
+        formatted = super().format(record)
+        
+        # Normalize line endings for Windows
+        formatted = formatted.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Add extra context for SQL queries
+        if hasattr(record, 'sql_executable'):
+            sql_lines = record.sql_executable.split('\n')
+            if len(sql_lines) > 1:
+                formatted += '\nSQL Query:\n' + '\n'.join(f"  {line}" for line in sql_lines)
+            else:
+                formatted += f'\nSQL: {record.sql_executable}'
+        
+        # Add execution time if available
+        if hasattr(record, 'execution_time_ms'):
+            formatted += f' ({record.execution_time_ms}ms)'
+        
+        return formatted 

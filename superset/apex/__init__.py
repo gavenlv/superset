@@ -14,3 +14,13 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License. 
+
+"""
+Apex Extensions for Superset
+
+This package contains advanced features and enhancements for Apache Superset,
+including improved logging, monitoring, and utility functions.
+"""
+
+__version__ = "1.0.0"
+__author__ = "Superset Apex Team" 
