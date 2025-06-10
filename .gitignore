@@ -121,3 +121,5 @@ docker/*local*
 
 # Jest test report
 test-report.html
+data/sessions/67b2963d543c13c9ec43b6a94881d59a
+data/sessions/2029240f6d1128be89ddc32729463129

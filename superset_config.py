@@ -2,9 +2,31 @@ import os
 from datetime import timedelta
 from dotenv import load_dotenv
 import os
+from superset.config import *
 
 # 自动加载.env文件
 load_dotenv(override=True)  # 强制覆盖已有变量
+
+# ---------------------------------------------------------
+# Superset特定配置
+# ---------------------------------------------------------
+# 数据目录，用于存储上传的文件等
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+# 检查并创建DATA_DIR
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+# 开启服务器端Session存储
+SESSION_SERVER_SIDE = True
+# Session存储类型为文件系统
+SESSION_TYPE = "filesystem"
+# Session文件存储目录
+SESSION_FILE_DIR = os.path.join(DATA_DIR, "sessions")
+
+# 检查并创建SESSION_FILE_DIR
+if not os.path.exists(SESSION_FILE_DIR):
+    os.makedirs(SESSION_FILE_DIR)
 
 SQLALCHEMY_DATABASE_URI = os.getenv("SQLALCHEMY_DATABASE_URI")
 SECRET_KEY = 'fiVM2JDST7oP0SkXtge8RhCE+mtWk2GmoI7xHwMc5BsspcWfbMmWoqf8'
@@ -51,7 +73,7 @@ FAB_API_SWAGGER_UI = True
 AUTH_ROLE_PUBLIC = 'Public'
 
 # ============================================================================
-# Apex Logging Configuration
+#
 # ============================================================================
 
 # Import the apex logging modules
