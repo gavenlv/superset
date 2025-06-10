@@ -58,6 +58,14 @@
 - 执行顺序：最下面的装饰器最先执行
 - Superset CLI 中的每个命令都被多个装饰器"包装"，获得了命令行调用、Flask上下文、事务管理等能力
 
+**进阶实验** (可选)：
+```bash
+# 运行 Click 深度演示脚本，体验真实的 Click 功能
+python click_deep_dive.py --help
+python click_deep_dive.py --verbose init --force
+python click_deep_dive.py basic-hello --name "张三" --count 3 --loud
+```
+
 ## 练习1: 探索 CLI
 
 首先，运行 `help` 命令，看看你的 Superset 版本都提供了哪些命令。尝试找到我们今天学习过的 `db`, `init`, `run`, `load-examples` 等命令。
