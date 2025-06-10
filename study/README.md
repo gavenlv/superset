@@ -17,8 +17,9 @@ study/
 │   └── test_db_connection.py         # 数据库连接测试
 │
 ├── day2_cli/                  # 第二天：命令行接口 (CLI)
-│   ├── day2_learning_notes.md        # 深度源码分析笔记
+│   ├── day2_learning_notes.md        # 深度源码分析笔记（含装饰器专题）
 │   ├── day2_practice.md              # 实践指南
+│   ├── decorator_practice.py         # 装饰器原理演示脚本
 │   ├── debug_diagnostic.py          # CLI 环境诊断工具
 │   └── debug_manual_start.py        # 手动启动脚本
 │
@@ -45,6 +46,7 @@ study/
 2. 按天数顺序学习：
    - **Day 1**: [`day1_flask_architecture/day1_learning_notes.md`](day1_flask_architecture/day1_learning_notes.md) + [`day1_flask_architecture/day1_practice.py`](day1_flask_architecture/day1_practice.py)
    - **Day 2**: [`day2_cli/day2_learning_notes.md`](day2_cli/day2_learning_notes.md) + [`day2_cli/day2_practice.md`](day2_cli/day2_practice.md)
+     - 💡 **特别推荐**: 运行 `day2_cli/decorator_practice.py` 来深入理解装饰器原理
 
 ### 遇到调试问题
 1. 查看 [`debug/guides/debug_setup_guide.md`](debug/guides/debug_setup_guide.md) 设置调试环境

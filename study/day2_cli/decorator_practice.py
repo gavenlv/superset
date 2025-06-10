@@ -8,6 +8,7 @@ Day 2 - CLI 学习辅助工具
 import time
 import functools
 from typing import Any, Callable
+import click
 
 
 # ========== 基础装饰器示例 ==========
@@ -143,6 +144,89 @@ def dangerous_database_operation():
     raise ValueError("网络连接中断！")
 
 
+# ========== Click 装饰器演示 ==========
+
+class MockClickCommand:
+    """模拟 Click 命令对象"""
+    def __init__(self, name, callback):
+        self.name = name
+        self.callback = callback
+        self.options = {}
+        
+    def add_option(self, name, **kwargs):
+        self.options[name] = kwargs
+        
+    def invoke(self, **kwargs):
+        """模拟命令调用"""
+        print(f"🔧 执行 Click 命令: {self.name}")
+        print(f"📝 解析到的参数: {kwargs}")
+        
+        # 类型转换演示
+        processed_kwargs = {}
+        for key, value in kwargs.items():
+            if key in self.options and 'type' in self.options[key]:
+                option_type = self.options[key]['type']
+                if option_type == int:
+                    processed_kwargs[key] = int(value)
+                else:
+                    processed_kwargs[key] = value
+            else:
+                processed_kwargs[key] = value
+        
+        print(f"🔄 类型转换后: {processed_kwargs}")
+        return self.callback(**processed_kwargs)
+
+
+def mock_click_command(name=None):
+    """模拟 @click.command() 装饰器"""
+    def decorator(func):
+        cmd_name = name or func.__name__
+        command_obj = MockClickCommand(cmd_name, func)
+        
+        # 复制 click 选项
+        if hasattr(func, '_mock_click_options'):
+            for opt_name, opt_config in func._mock_click_options.items():
+                command_obj.add_option(opt_name, **opt_config)
+        
+        return command_obj
+    return decorator
+
+
+def mock_click_option(option_name, **kwargs):
+    """模拟 @click.option() 装饰器"""
+    def decorator(func):
+        if not hasattr(func, '_mock_click_options'):
+            func._mock_click_options = {}
+        
+        # 去掉 option_name 的 '--' 前缀
+        clean_name = option_name.lstrip('-')
+        func._mock_click_options[clean_name] = kwargs
+        
+        return func
+    return decorator
+
+
+# Click 装饰器使用示例
+@mock_click_command('hello')
+@mock_click_option('--name', default='World', help='要问候的人')
+@mock_click_option('--count', type=int, default=1, help='重复次数')
+def hello_command(name, count):
+    """Click 命令示例"""
+    print(f"✨ 生成问候语:")
+    for i in range(count):
+        print(f"   Hello, {name}! (第 {i+1} 次)")
+
+
+# 演示 Click 参数顺序问题
+@mock_click_command('demo-order')
+@mock_click_option('--first', default='A')    # 最后添加
+@mock_click_option('--second', default='B')   # 中间添加  
+@mock_click_option('--third', default='C')    # 最先添加
+def order_demo(third, second, first):  # 注意：参数顺序与装饰器相反！
+    """演示 Click 参数顺序"""
+    print(f"📋 参数接收顺序: third={third}, second={second}, first={first}")
+
+
 # ========== 装饰器执行顺序演示 ==========
 
 def decorator_a(func):
@@ -215,13 +299,22 @@ def main():
     except Exception as e:
         print(f"捕获异常: {e}")
     
-    print("\n5️⃣ 装饰器执行顺序演示:")
+    print("\n5️⃣ Click 装饰器原理演示:")
+    print("-" * 30)
+    print("🔧 模拟 Click 命令执行:")
+    hello_command.invoke(name="张三", count="3")  # 注意 count 是字符串，会被自动转换
+    
+    print("\n🔧 演示参数顺序问题:")
+    order_demo.invoke(first="X", second="Y", third="Z")
+    
+    print("\n6️⃣ 装饰器执行顺序演示:")
     print("-" * 30)
     print("注意观察装饰器的初始化顺序:")
     test_order()
     
     print("\n" + "=" * 60)
     print("🎉 练习完成！现在你应该理解装饰器的工作原理了！")
+    print("特别是 Click 装饰器如何将普通函数转换为强大的命令行工具！")
     print("=" * 60)
 
 
