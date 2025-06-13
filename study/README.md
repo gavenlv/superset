@@ -1,83 +1,142 @@
-# Superset 源码学习资料
+# Superset 学习指南
 
-本目录包含了 Apache Superset 源码学习的所有相关资料，按天、主题和文件类型进行了清晰的组织。
+## 📚 完整源码分析文档
 
-## 📁 目录结构
+### 🎯 [Superset 完整源码深度分析](./superset_complete_source_analysis.md)
+**一站式源码分析文档，包含所有7天的学习内容**
 
-```
-study/
-├── README.md              # 本说明文件
-├── study_guide.md         # 总体学习指南和规划
-│
-├── day1_flask_architecture/   # 第一天：Flask 应用架构
-│   ├── day1_learning_notes.md        # 学习笔记
-│   ├── day1_practice.py              # 实践脚本
-│   ├── simple_debug_start.py         # 应用启动调试脚本
-│   ├── debug_config.py               # 配置调试脚本
-│   └── test_db_connection.py         # 数据库连接测试
-│
-├── day2_cli/                  # 第二天：命令行接口 (CLI)
-│   ├── day2_learning_notes.md        # 深度源码分析笔记（含装饰器专题）
-│   ├── day2_practice.md              # 实践指南
-│   ├── decorator_practice.py         # 装饰器原理演示脚本
-│   ├── click_deep_dive.py            # Click 装饰器深度演示
-│   ├── debug_diagnostic.py          # CLI 环境诊断工具
-│   └── debug_manual_start.py        # 手动启动脚本
-│
-└── debug/                 # 调试工具和指南
-    ├── guides/            # 调试指南文档
-    │   ├── debug_setup_guide.md      # 调试环境设置
-    │   ├── debug_troubleshooting.md  # 故障排除指南
-    │   ├── frontend_debug_guide.md   # 前端调试指南
-    │   └── database_debug_guide.md   # 数据库调试指南
-    └── scripts/           # 调试脚本工具
-        ├── debug_config.py           # 调试配置
-        ├── debug_diagnostic.py      # 环境诊断工具
-        ├── debug_manual_start.py     # 手动启动脚本
-        ├── debug_test.py             # 调试测试脚本
-        ├── python_debug_examples.py  # Python 调试示例
-        ├── simple_debug_start.py     # 简化启动脚本
-        └── test_db_connection.py     # 数据库连接测试
-```
-
-## 🚀 快速开始
-
-### 新手入门
-1. 先阅读 [`study_guide.md`](study_guide.md) 了解整体学习计划
-2. 按天数顺序学习：
-   - **Day 1**: [`day1_flask_architecture/day1_learning_notes.md`](day1_flask_architecture/day1_learning_notes.md) + [`day1_flask_architecture/day1_practice.py`](day1_flask_architecture/day1_practice.py)
-   - **Day 2**: [`day2_cli/day2_learning_notes.md`](day2_cli/day2_learning_notes.md) + [`day2_cli/day2_practice.md`](day2_cli/day2_practice.md)
-     - 💡 **特别推荐**: 
-       - 运行 `day2_cli/decorator_practice.py` 来深入理解装饰器原理
-       - 运行 `day2_cli/click_deep_dive.py --help` 体验真实的 Click 装饰器功能
-
-### 遇到调试问题
-1. 查看 [`debug/guides/debug_setup_guide.md`](debug/guides/debug_setup_guide.md) 设置调试环境
-2. 运行 [`debug/scripts/debug_diagnostic.py`](debug/scripts/debug_diagnostic.py) 诊断问题
-3. 参考对应的调试指南解决具体问题
-
-### 快速启动 Superset
-使用简化脚本快速启动：
-```bash
-cd study/debug/scripts
-python simple_debug_start.py
-```
-
-## 📚 学习建议
-
-- **循序渐进**: 严格按照天数顺序学习，不要跳跃
-- **理论结合实践**: 每天的学习都包含理论笔记和实践环节
-- **善用调试工具**: 遇到问题时，优先使用 `debug/` 目录下的工具
-- **做好笔记**: 在学习过程中记录自己的思考和发现
-
-## 🔧 维护说明
-
-这个目录结构的设计原则：
-- **按天组织**: 每天的学习内容独立成目录，文件直接放在对应天数目录下
-- **简化层级**: 避免过多的子目录层级，方便快速定位文件
-- **按主题归档**: 调试相关的所有资料集中在 debug 目录
-- **便于扩展**: 后续可以轻松添加 day3、day4 等新内容
+涵盖内容：
+- **Day 1**: Superset 概览与架构 - 应用初始化、核心模型
+- **Day 2**: 数据模型与ORM - SqlaTable、引擎规范、查询构建
+- **Day 3**: 数据库连接与SQL查询 - 连接管理、SQL解析、安全验证
+- **Day 4**: 数据集管理 - 元数据发现、列管理、生命周期
+- **Day 5**: 异步处理与性能优化 - Celery任务、异步查询、缓存机制
+- **Day 6**: 仪表板布局系统 - React组件、拖拽交互、Redux状态管理
+- **Day 7**: API与Web服务架构 - RESTful API、认证授权、权限控制
 
 ---
 
-Happy Learning! 🎯 
+## 📂 分天学习内容
+
+### Day 1: Superset 概览与架构
+- [学习笔记](./day1_superset_overview/README.md)
+- [源码分析](./day1_superset_overview/day1_source_code_analysis.md)
+- [实践练习](./day1_superset_overview/day1_practice.py)
+
+### Day 2: 数据模型与ORM  
+- [学习笔记](./day2_data_models/README.md)
+- [源码分析](./day2_data_models/day2_comprehensive_source_analysis.md)
+- [实践练习](./day2_data_models/day2_practice.py)
+
+### Day 3: 数据库连接与SQL查询
+- [学习笔记](./day3_database_connections/README.md)
+- [源码分析](./day3_database_connections/day3_source_code_analysis.md)
+- [实践练习](./day3_database_connections/day3_practice.py)
+
+### Day 4: 数据集管理
+- [学习笔记](./day4_dataset_management/README.md)
+- [源码分析](./day4_dataset_management/day4_source_code_analysis.md)
+- [实践练习](./day4_dataset_management/day4_practice.py)
+
+### Day 5: 异步处理与性能优化
+- [学习笔记](./day5_async_performance/README.md)
+- [源码分析](./day5_async_performance/day5_source_code_analysis.md)
+- [实践练习](./day5_async_performance/day5_practice.py)
+
+### Day 6: 仪表板布局系统
+- [学习笔记](./day6_dashboard_layout/README.md)
+- [源码分析](./day6_dashboard_layout/day6_source_code_analysis.md)
+- [实践练习](./day6_dashboard_layout/day6_practice.js)
+
+### Day 7: API与Web服务架构
+- [学习笔记](./day7_api_web_services/README.md)
+- [源码分析](./day7_api_web_services/day7_source_code_analysis.md)
+- [实践练习](./day7_api_web_services/day7_practice.py)
+
+---
+
+## 🎯 学习路径建议
+
+### 初学者路径
+1. 从 **Day 1** 开始，了解整体架构
+2. 重点学习 **Day 2-3**，掌握数据模型和连接
+3. 根据兴趣选择 **Day 4-7** 的专题内容
+
+### 开发者路径
+1. 快速浏览 **Day 1** 概览
+2. 深入研究 **Day 2-4** 后端核心
+3. 学习 **Day 5** 性能优化
+4. 根据需要学习 **Day 6-7** 前端和API
+
+### 架构师路径
+1. 重点研读 **完整源码分析文档**
+2. 关注设计模式和架构决策
+3. 分析性能优化和扩展性设计
+4. 理解微服务和API设计
+
+---
+
+## 🛠️ 实践环境
+
+### 开发环境搭建
+```bash
+# 克隆项目
+git clone https://github.com/apache/superset.git
+cd superset
+
+# 安装依赖
+pip install -e .
+
+# 初始化数据库
+superset db upgrade
+superset init
+
+# 创建管理员用户
+superset fab create-admin
+
+# 启动开发服务器
+superset run -p 8088 --with-threads --reload --debugger
+```
+
+### 调试配置
+- [调试设置指南](./debug/debug_setup_guide.md)
+- [Python调试示例](./debug/python_debug_examples.py)
+- [前端调试指南](./debug/frontend_debug_guide.md)
+
+---
+
+## 📖 学习资源
+
+### 官方文档
+- [Superset 官方文档](https://superset.apache.org/)
+- [API 文档](https://superset.apache.org/docs/api)
+- [贡献指南](https://superset.apache.org/docs/contributing)
+
+### 社区资源
+- [GitHub 仓库](https://github.com/apache/superset)
+- [Slack 社区](https://join.slack.com/t/apache-superset/shared_invite/zt-l5f5e0av-fyYu8tlfdqbMdz_sPLwUqQ)
+- [邮件列表](https://lists.apache.org/list.html?dev@superset.apache.org)
+
+---
+
+## 🎓 学习成果
+
+完成本学习指南后，你将掌握：
+
+1. **架构理解**: Superset的整体架构和设计理念
+2. **源码阅读**: 核心模块的实现原理和代码结构
+3. **开发技能**: 如何扩展和定制Superset功能
+4. **性能优化**: 异步处理、缓存策略、查询优化
+5. **部署运维**: 生产环境的配置和监控
+
+---
+
+## 📝 反馈与贡献
+
+如果你在学习过程中发现问题或有改进建议，欢迎：
+
+1. 提交 Issue 报告问题
+2. 提交 Pull Request 改进内容
+3. 分享你的学习心得和实践经验
+
+让我们一起完善这个学习指南，帮助更多人掌握Superset！ 
