@@ -1,0 +1,150 @@
+{
+  "DashboardPage": {
+    "name": "DashboardPage",
+    "type": "container",
+    "props": {
+      "idOrSlug": "string",
+      "history": "History",
+      "location": "Location"
+    },
+    "state": {
+      "dashboard": "Dashboard | null",
+      "loading": "boolean",
+      "error": "string | null"
+    },
+    "hooks": [
+      "useEffect",
+      "useState",
+      "useDispatch",
+      "useSelector",
+      "useDashboard",
+      "useDashboardCharts"
+    ],
+    "children": [
+      "DashboardBuilder",
+      "Loading",
+      "ErrorBoundary"
+    ],
+    "dependencies": [
+      "react",
+      "react-redux",
+      "react-router-dom",
+      "@superset-ui/core"
+    ]
+  },
+  "DashboardBuilder": {
+    "name": "DashboardBuilder",
+    "type": "presentational",
+    "props": {
+      "dashboard": "Dashboard",
+      "charts": "Chart[]",
+      "editMode": "boolean",
+      "onSave": "() => void"
+    },
+    "state": {
+      "draggedComponent": "Component | null",
+      "resizing": "boolean"
+    },
+    "hooks": [
+      "useState",
+      "useCallback",
+      "useMemo",
+      "useRef"
+    ],
+    "children": [
+      "DashboardHeader",
+      "DashboardGrid",
+      "BuilderComponentPane"
+    ],
+    "dependencies": [
+      "react",
+      "react-dnd",
+      "react-grid-layout"
+    ]
+  },
+  "ChartContainer": {
+    "name": "ChartContainer",
+    "type": "container",
+    "props": {
+      "chartId": "string",
+      "formData": "FormData",
+      "width": "number",
+      "height": "number"
+    },
+    "state": {
+      "chartData": "ChartData | null",
+      "loading": "boolean",
+      "error": "Error | null"
+    },
+    "hooks": [
+      "useEffect",
+      "useSelector",
+      "useDispatch",
+      "useChartData"
+    ],
+    "children": [
+      "SuperChart",
+      "ChartLoading",
+      "ChartError"
+    ],
+    "dependencies": [
+      "react",
+      "react-redux",
+      "@superset-ui/core"
+    ]
+  },
+  "ExploreViewContainer": {
+    "name": "ExploreViewContainer",
+    "type": "container",
+    "props": {
+      "datasourceId": "string",
+      "datasourceType": "string",
+      "formData": "FormData"
+    },
+    "state": {
+      "controls": "Controls",
+      "chart": "Chart",
+      "datasource": "Datasource"
+    },
+    "hooks": [
+      "useEffect",
+      "useState",
+      "useSelector",
+      "useDispatch"
+    ],
+    "children": [
+      "ExploreChartPanel",
+      "ControlPanelsContainer",
+      "QueryAndSaveBtns"
+    ],
+    "dependencies": [
+      "react",
+      "react-redux",
+      "@superset-ui/chart-controls"
+    ]
+  },
+  "ControlPanelsContainer": {
+    "name": "ControlPanelsContainer",
+    "type": "presentational",
+    "props": {
+      "controls": "Controls",
+      "datasource": "Datasource",
+      "onChange": "(controlName: string, value: any) => void"
+    },
+    "state": {
+      "expandedPanels": "Set<string>"
+    },
+    "hooks": [
+      "useState",
+      "useCallback"
+    ],
+    "children": [
+      "ControlPanel",
+      "Control"
+    ],
+    "dependencies": [
+      "react",
+      "@superset-ui/chart-controls"
+    ]
+  }
+}

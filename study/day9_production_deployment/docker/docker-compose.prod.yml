@@ -1,0 +1,259 @@
+version: '3.8'
+
+services:
+  # Redis 缓存服务
+  redis:
+    image: redis:6.2-alpine
+    container_name: superset_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-superset123}
+    volumes:
+      - redis_data:/data
+    networks:
+      - superset_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-superset123}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL 数据库服务
+  postgres:
+    image: postgres:13
+    container_name: superset_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-superset}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-superset123}
+      POSTGRES_DB: ${DB_NAME:-superset}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - superset_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-superset}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Superset 应用服务
+  superset:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.production
+    container_name: superset_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 基础配置
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-your-secret-key-here}
+      DATABASE_URL: postgresql://${DB_USER:-superset}:${DB_PASSWORD:-superset123}@postgres:5432/${DB_NAME:-superset}
+      
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-superset123}
+      
+      # Flask 配置
+      FLASK_ENV: production
+      FLASK_DEBUG: 0
+      
+      # Superset 配置
+      SUPERSET_LOAD_EXAMPLES: ${SUPERSET_LOAD_EXAMPLES:-no}
+      SUPERSET_ENV: production
+      
+      # Python 配置
+      PYTHONPATH: /app/pythonpath:/app
+    volumes:
+      - ./superset_config.py:/app/superset_config.py:ro
+      - superset_logs:/app/logs
+      - superset_home:/app/superset_home
+    networks:
+      - superset_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Celery Worker 服务
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.production
+    container_name: superset_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-your-secret-key-here}
+      DATABASE_URL: postgresql://${DB_USER:-superset}:${DB_PASSWORD:-superset123}@postgres:5432/${DB_NAME:-superset}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-superset123}
+      FLASK_ENV: production
+      PYTHONPATH: /app/pythonpath:/app
+    volumes:
+      - ./superset_config.py:/app/superset_config.py:ro
+      - superset_home:/app/superset_home
+    networks:
+      - superset_network
+    command: celery worker --app=superset.tasks.celery_app:app --loglevel=info --concurrency=4
+    healthcheck:
+      test: ["CMD", "celery", "inspect", "ping", "-A", "superset.tasks.celery_app:app"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # Celery Beat 调度服务
+  celery_beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.production
+    container_name: superset_beat
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-your-secret-key-here}
+      DATABASE_URL: postgresql://${DB_USER:-superset}:${DB_PASSWORD:-superset123}@postgres:5432/${DB_NAME:-superset}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-superset123}
+      FLASK_ENV: production
+      PYTHONPATH: /app/pythonpath:/app
+    volumes:
+      - ./superset_config.py:/app/superset_config.py:ro
+      - superset_home:/app/superset_home
+    networks:
+      - superset_network
+    command: celery beat --app=superset.tasks.celery_app:app --loglevel=info --pidfile=
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx 反向代理服务
+  nginx:
+    image: nginx:alpine
+    container_name: superset_nginx
+    restart: unless-stopped
+    depends_on:
+      superset:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - superset_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # Prometheus 监控服务 (可选)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: superset_prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - superset_network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    profiles:
+      - monitoring
+
+  # Grafana 可视化服务 (可选)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: superset_grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - superset_network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  superset_logs:
+    driver: local
+  superset_home:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  superset_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

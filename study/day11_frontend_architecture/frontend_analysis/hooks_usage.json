@@ -1,0 +1,48 @@
+{
+  "useState": [
+    "const [loading, setLoading] = useState(false);",
+    "const [data, setData] = useState(null);",
+    "const [error, setError] = useState(null);",
+    "const [formData, setFormData] = useState({});",
+    "const [visible, setVisible] = useState(false);"
+  ],
+  "useEffect": [
+    "useEffect(() => { fetchData(); }, []);",
+    "useEffect(() => { return cleanup; }, [dependency]);",
+    "useEffect(() => { subscription(); }, [id]);",
+    "useEffect(() => { updateTitle(); }, [title]);"
+  ],
+  "useSelector": [
+    "const dashboard = useSelector(state => state.dashboardState);",
+    "const charts = useSelector(state => state.charts);",
+    "const user = useSelector(state => state.user);",
+    "const filters = useSelector(selectActiveFilters);"
+  ],
+  "useDispatch": [
+    "const dispatch = useDispatch();",
+    "dispatch(fetchDashboard(id));",
+    "dispatch(setEditMode(true));",
+    "dispatch(updateChart(chartData));"
+  ],
+  "useCallback": [
+    "const handleClick = useCallback(() => {}, [dependency]);",
+    "const memoizedCallback = useCallback(fn, [a, b]);",
+    "const handleSubmit = useCallback(async () => {}, [formData]);"
+  ],
+  "useMemo": [
+    "const expensiveValue = useMemo(() => compute(), [data]);",
+    "const filteredData = useMemo(() => filter(data), [data, filter]);",
+    "const chartConfig = useMemo(() => buildConfig(), [formData]);"
+  ],
+  "useRef": [
+    "const inputRef = useRef(null);",
+    "const previousValue = useRef();",
+    "const intervalRef = useRef();"
+  ],
+  "Custom Hooks": [
+    "const { data, loading, error } = useApiResource(endpoint);",
+    "const { dashboard } = useDashboard(dashboardId);",
+    "const { charts } = useCharts();",
+    "const toast = useToasts();"
+  ]
+}

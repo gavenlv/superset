@@ -1,0 +1,49 @@
+{
+  "code_splitting": {
+    "route_level": [
+      "lazy(() => import('./Dashboard'))",
+      "lazy(() => import('./Explore'))",
+      "lazy(() => import('./ChartList'))"
+    ],
+    "component_level": [
+      "lazy(() => import('./HeavyChart'))",
+      "lazy(() => import('./ComplexModal'))"
+    ],
+    "webpack_chunks": [
+      "/* webpackChunkName: 'dashboard' */",
+      "/* webpackChunkName: 'explore' */",
+      "/* webpackPreload: true */"
+    ]
+  },
+  "memoization": {
+    "react_memo": [
+      "React.memo(Component)",
+      "React.memo(Component, areEqual)"
+    ],
+    "use_memo": [
+      "useMemo(() => expensiveCalculation(), [deps])",
+      "useMemo(() => processData(data), [data])"
+    ],
+    "use_callback": [
+      "useCallback(() => handleClick(), [deps])",
+      "useCallback(async () => fetchData(), [id])"
+    ]
+  },
+  "virtualization": {
+    "react_window": [
+      "FixedSizeList",
+      "VariableSizeList",
+      "FixedSizeGrid"
+    ],
+    "react_virtualized": [
+      "AutoSizer",
+      "List",
+      "Table"
+    ]
+  },
+  "debouncing": {
+    "search_input": "debounce(handleSearch, 300)",
+    "resize_handler": "debounce(handleResize, 100)",
+    "api_calls": "debounce(fetchData, 500)"
+  }
+}

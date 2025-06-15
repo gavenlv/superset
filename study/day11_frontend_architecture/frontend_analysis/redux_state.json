@@ -1,0 +1,96 @@
+{
+  "dashboard_state": {
+    "editMode": false,
+    "isPublished": true,
+    "hasUnsavedChanges": false,
+    "expandedSlices": {},
+    "activeTabs": [],
+    "refreshFrequency": 0,
+    "isFiltersRefreshing": false,
+    "isRefreshing": false,
+    "directPathToChild": [],
+    "focusedFilterField": null,
+    "fullSizeChartId": null
+  },
+  "dashboard_layout": {
+    "present": {
+      "DASHBOARD_VERSION_KEY": "v2",
+      "ROOT_ID": {
+        "type": "ROOT",
+        "id": "ROOT_ID",
+        "children": [
+          "DASHBOARD_HEADER",
+          "GRID_ID"
+        ]
+      },
+      "DASHBOARD_HEADER": {
+        "type": "HEADER",
+        "id": "DASHBOARD_HEADER",
+        "meta": {
+          "text": "Dashboard Title"
+        }
+      },
+      "GRID_ID": {
+        "type": "GRID",
+        "id": "GRID_ID",
+        "children": []
+      }
+    },
+    "past": [],
+    "future": []
+  },
+  "charts": {
+    "chart_id": {
+      "id": "chart_id",
+      "chartStatus": "loading",
+      "chartUpdateEndTime": null,
+      "chartUpdateStartTime": null,
+      "latestQueryFormData": {},
+      "sliceFormData": {},
+      "queryController": null,
+      "queriesResponse": null,
+      "triggerQuery": false,
+      "lastRendered": 0
+    }
+  },
+  "datasources": {
+    "datasource_id__datasource_type": {
+      "id": "datasource_id",
+      "type": "datasource_type",
+      "name": "datasource_name",
+      "columns": [],
+      "metrics": [],
+      "column_formats": {},
+      "verbose_map": {},
+      "main_dttm_col": null,
+      "datasource_name": "datasource_name",
+      "description": null
+    }
+  },
+  "native_filters": {
+    "filters": {
+      "filter_id": {
+        "id": "filter_id",
+        "filterType": "filter_select",
+        "targets": [],
+        "defaultDataMask": {},
+        "cascadeParentIds": [],
+        "scope": {
+          "rootPath": [],
+          "excluded": []
+        },
+        "controlValues": {},
+        "name": "Filter Name",
+        "description": null
+      }
+    },
+    "filtersState": {}
+  },
+  "data_mask": {
+    "chart_id": {
+      "extraFormData": {},
+      "filterState": {},
+      "ownState": {}
+    }
+  }
+}

@@ -1,0 +1,114 @@
+# 多阶段构建 - 生产环境 Dockerfile
+FROM node:16-alpine AS frontend-builder
+
+# 设置工作目录
+WORKDIR /app/superset-frontend
+
+# 复制前端依赖文件
+COPY superset-frontend/package*.json ./
+
+# 安装前端依赖
+RUN npm ci --only=production --quiet
+
+# 复制前端源码
+COPY superset-frontend ./
+
+# 构建前端资源
+RUN npm run build
+
+# Python 依赖构建阶段
+FROM python:3.9-slim AS backend-builder
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    default-libmysqlclient-dev \
+    libpq-dev \
+    libsasl2-dev \
+    libldap2-dev \
+    libssl-dev \
+    libffi-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制 Python 依赖文件
+COPY requirements/production.txt ./requirements.txt
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 生产环境最终阶段
+FROM python:3.9-slim AS production
+
+# 设置环境变量
+ENV PYTHONPATH="/app/pythonpath" \
+    SUPERSET_HOME="/app/superset_home" \
+    FLASK_APP="superset.app:create_app" \
+    SUPERSET_CONFIG_PATH="/app/superset_config.py" \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# 创建目录
+RUN mkdir -p ${PYTHONPATH} ${SUPERSET_HOME}
+
+# 安装系统运行时依赖
+RUN apt-get update && apt-get install -y \
+    default-libmysqlclient-dev \
+    libpq5 \
+    libsasl2-2 \
+    libldap-2.4-2 \
+    libssl1.1 \
+    libffi7 \
+    libxml2 \
+    libxslt1.1 \
+    curl \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制 Python 依赖
+COPY --from=backend-builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
+
+# 创建应用用户
+RUN groupadd -r superset && \
+    useradd -r -g superset -d /app -s /bin/bash superset
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制应用代码
+COPY . .
+
+# 复制前端构建产物
+COPY --from=frontend-builder /app/superset-frontend/dist ./superset/static/assets
+
+# 复制配置文件模板
+COPY docker/superset_config.py ./superset_config.py
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+
+# 设置文件权限
+RUN chown -R superset:superset /app && \
+    chmod +x /app/docker/docker-entrypoint.sh
+
+# 切换到应用用户
+USER superset
+
+# 暴露端口
+EXPOSE 8088
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8088/health || exit 1
+
+# 入口点
+ENTRYPOINT ["dumb-init", "--", "/app/docker/docker-entrypoint.sh"]
+
+# 默认命令
+CMD ["gunicorn", "--bind", "0.0.0.0:8088", "--workers", "4", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "120", "--keepalive", "2", "--access-logfile", "-", "--error-logfile", "-", "superset.app:create_app()"] 
