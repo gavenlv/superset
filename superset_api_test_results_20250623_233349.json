@@ -1,0 +1,123 @@
+{
+  "timestamp": "2025-06-23T23:33:49.104808",
+  "base_url": "http://localhost:8088",
+  "username": "admin",
+  "total_tests": 16,
+  "passed": 7,
+  "failed": 5,
+  "warnings": 4,
+  "results": [
+    {
+      "test_name": "Health Check",
+      "status": "WARN",
+      "message": "Unexpected health check response",
+      "response_time": 2067.096710205078,
+      "timestamp": "2025-06-23T23:33:13.416582"
+    },
+    {
+      "test_name": "OpenAPI Specification",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2067.134141921997,
+      "timestamp": "2025-06-23T23:33:15.484356"
+    },
+    {
+      "test_name": "Authentication - Login",
+      "status": "PASS",
+      "message": "Successfully obtained access token",
+      "response_time": 2130.308151245117,
+      "timestamp": "2025-06-23T23:33:17.614664"
+    },
+    {
+      "test_name": "Authentication - User Info",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2055.980920791626,
+      "timestamp": "2025-06-23T23:33:19.670645"
+    },
+    {
+      "test_name": "Dashboards - List",
+      "status": "PASS",
+      "message": "Found 6 dashboards",
+      "response_time": 2131.204605102539,
+      "timestamp": "2025-06-23T23:33:21.801850"
+    },
+    {
+      "test_name": "Dashboards - Detail",
+      "status": "PASS",
+      "message": "Dashboard: USA Births Names",
+      "response_time": 2052.5295734405518,
+      "timestamp": "2025-06-23T23:33:23.854379"
+    },
+    {
+      "test_name": "Charts - List",
+      "status": "PASS",
+      "message": "Found 40 charts",
+      "response_time": 2128.880262374878,
+      "timestamp": "2025-06-23T23:33:25.984657"
+    },
+    {
+      "test_name": "Charts - Data Query",
+      "status": "WARN",
+      "message": "Status: No response",
+      "response_time": 2249.9146461486816,
+      "timestamp": "2025-06-23T23:33:28.234572"
+    },
+    {
+      "test_name": "Datasets - List",
+      "status": "PASS",
+      "message": "Found 11 datasets",
+      "response_time": 2120.2521324157715,
+      "timestamp": "2025-06-23T23:33:30.354824"
+    },
+    {
+      "test_name": "Databases - List",
+      "status": "PASS",
+      "message": "Found 2 databases",
+      "response_time": 2087.085723876953,
+      "timestamp": "2025-06-23T23:33:32.444454"
+    },
+    {
+      "test_name": "Databases - Test Connection",
+      "status": "WARN",
+      "message": "Status: No response",
+      "response_time": 4140.51079750061,
+      "timestamp": "2025-06-23T23:33:36.584965"
+    },
+    {
+      "test_name": "SQL Lab - Execute Query",
+      "status": "WARN",
+      "message": "Status: No response",
+      "response_time": 2080.0318717956543,
+      "timestamp": "2025-06-23T23:33:40.744622"
+    },
+    {
+      "test_name": "SQL Lab - Saved Queries",
+      "status": "PASS",
+      "message": "Found 0 saved queries",
+      "response_time": 2224.534511566162,
+      "timestamp": "2025-06-23T23:33:42.969156"
+    },
+    {
+      "test_name": "Security - Roles",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2055.8383464813232,
+      "timestamp": "2025-06-23T23:33:45.024994"
+    },
+    {
+      "test_name": "Security - Users",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2053.3010959625244,
+      "timestamp": "2025-06-23T23:33:47.078296"
+    },
+    {
+      "test_name": "APEX - JWT Login",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2010.21146774292,
+      "timestamp": "2025-06-23T23:33:49.095037"
+    }
+  ]
+}

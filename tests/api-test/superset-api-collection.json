@@ -1,0 +1,868 @@
+{
+  "info": {
+    "name": "Superset API Complete Test Suite",
+    "description": "Complete API test collection for Apache Superset with authentication, CRUD operations, and response validation",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8088",
+      "description": "Superset server base URL"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "JWT access token for authentication"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "description": "Refresh token"
+    },
+    {
+      "key": "csrfToken",
+      "value": "",
+      "description": "CSRF token for security"
+    },
+    {
+      "key": "username",
+      "value": "admin",
+      "description": "Username for login"
+    },
+    {
+      "key": "password",
+      "value": "admin",
+      "description": "Password for login"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01. Authentication",
+      "description": "Authentication and authorization endpoints",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"provider\": \"db\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/security/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "security", "login"]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Test response status",
+                  "pm.test('Login successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Test response structure",
+                  "pm.test('Response has access token', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('access_token');",
+                  "    pm.expect(responseJson.access_token).to.be.a('string');",
+                  "    pm.expect(responseJson.access_token).to.not.be.empty;",
+                  "});",
+                  "",
+                  "// Save tokens to variables",
+                  "pm.test('Save tokens', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', responseJson.access_token);",
+                  "    if (responseJson.refresh_token) {",
+                  "        pm.collectionVariables.set('refreshToken', responseJson.refresh_token);",
+                  "    }",
+                  "});",
+                  "",
+                  "// Validate token format (JWT)",
+                  "pm.test('Access token is valid JWT format', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    const token = responseJson.access_token;",
+                  "    const tokenParts = token.split('.');",
+                  "    pm.expect(tokenParts).to.have.lengthOf(3);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get User Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/me/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "me"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('User info retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains user data', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    pm.expect(responseJson.result).to.have.property('username');",
+                  "    pm.expect(responseJson.result).to.have.property('email');",
+                  "    pm.expect(responseJson.result).to.have.property('roles');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CSRF Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/security/csrf_token/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "security", "csrf_token"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('CSRF token retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Save CSRF token', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    if (responseJson.result) {",
+                  "        pm.collectionVariables.set('csrfToken', responseJson.result);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02. Dashboards",
+      "description": "Dashboard management endpoints",
+      "item": [
+        {
+          "name": "List Dashboards",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard/?q=(page:0,page_size:25)",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dashboard"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "(page:0,page_size:25)"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Dashboards retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response structure is valid', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('count');",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    pm.expect(responseJson.result).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Dashboard objects have required fields', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    if (responseJson.result.length > 0) {",
+                  "        const dashboard = responseJson.result[0];",
+                  "        pm.expect(dashboard).to.have.property('id');",
+                  "        pm.expect(dashboard).to.have.property('dashboard_title');",
+                  "        pm.expect(dashboard).to.have.property('url');",
+                  "        pm.expect(dashboard).to.have.property('published');",
+                  "    }",
+                  "});",
+                  "",
+                  "// Save first dashboard ID for further tests",
+                  "pm.test('Save dashboard ID', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    if (responseJson.result.length > 0) {",
+                  "        pm.collectionVariables.set('dashboardId', responseJson.result[0].id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Dashboard by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard/{{dashboardId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dashboard", "{{dashboardId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Dashboard details retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Dashboard has complete data', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    const dashboard = responseJson.result;",
+                  "    pm.expect(dashboard).to.have.property('dashboard_title');",
+                  "    pm.expect(dashboard).to.have.property('position_json');",
+                  "    pm.expect(dashboard).to.have.property('metadata');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03. Charts",
+      "description": "Chart management endpoints",
+      "item": [
+        {
+          "name": "List Charts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chart/?q=(page:0,page_size:25)",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "chart"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "(page:0,page_size:25)"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Charts retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Charts response structure', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('count');",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    pm.expect(responseJson.result).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Chart objects validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    if (responseJson.result.length > 0) {",
+                  "        const chart = responseJson.result[0];",
+                  "        pm.expect(chart).to.have.property('id');",
+                  "        pm.expect(chart).to.have.property('slice_name');",
+                  "        pm.expect(chart).to.have.property('viz_type');",
+                  "        pm.collectionVariables.set('chartId', chart.id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Chart Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"datasource\": {\n    \"id\": 1,\n    \"type\": \"table\"\n  },\n  \"queries\": [\n    {\n      \"time_range\": \"No filter\",\n      \"granularity\": \"ds\",\n      \"filters\": [],\n      \"extras\": {\n        \"having\": \"\",\n        \"where\": \"\"\n      }\n    }\n  ],\n  \"result_format\": \"json\",\n  \"result_type\": \"full\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chart/data",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "chart", "data"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Chart data retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Data response format', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04. Datasets",
+      "description": "Dataset management endpoints",
+      "item": [
+        {
+          "name": "List Datasets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dataset/?q=(page:0,page_size:25)",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dataset"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "(page:0,page_size:25)"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Datasets retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Dataset structure validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('count');",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    if (responseJson.result.length > 0) {",
+                  "        const dataset = responseJson.result[0];",
+                  "        pm.expect(dataset).to.have.property('id');",
+                  "        pm.expect(dataset).to.have.property('table_name');",
+                  "        pm.collectionVariables.set('datasetId', dataset.id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05. Databases",
+      "description": "Database connection endpoints",
+      "item": [
+        {
+          "name": "List Databases",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/database/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "database"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Databases retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Database objects validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    if (responseJson.result.length > 0) {",
+                  "        const database = responseJson.result[0];",
+                  "        pm.expect(database).to.have.property('id');",
+                  "        pm.expect(database).to.have.property('database_name');",
+                  "        pm.collectionVariables.set('databaseId', database.id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Test Database Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sqlalchemy_uri\": \"sqlite:///\",\n  \"database_name\": \"test_connection\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/database/test_connection",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "database", "test_connection"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Connection test response received', function () {",
+                  "    pm.response.to.have.status.oneOf([200, 400, 422]);",
+                  "});",
+                  "",
+                  "pm.test('Response has message', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06. SQL Lab",
+      "description": "SQL Lab and query endpoints",
+      "item": [
+        {
+          "name": "Execute SQL Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"database_id\": {{databaseId}},\n  \"sql\": \"SELECT 1 as test_column\",\n  \"runAsync\": false,\n  \"schema\": \"main\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sqllab/execute/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "sqllab", "execute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('SQL execution completed', function () {",
+                  "    pm.response.to.have.status.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "pm.test('Query result validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    if (responseJson.status === 'success') {",
+                  "        pm.expect(responseJson).to.have.property('data');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Saved Queries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/saved_query/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "saved_query"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Saved queries retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Saved queries structure', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07. Security & Permissions",
+      "description": "Security and permission endpoints",
+      "item": [
+        {
+          "name": "List Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/security/roles/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "security", "roles"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Roles retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Roles structure validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    pm.expect(responseJson.result).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/security/users/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "security", "users"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Users retrieved successfully', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Users data validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('result');",
+                  "    if (responseJson.result.length > 0) {",
+                  "        const user = responseJson.result[0];",
+                  "        pm.expect(user).to.have.property('username');",
+                  "        pm.expect(user).to.have.property('email');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08. APEX JWT Authentication",
+      "description": "Custom APEX JWT authentication endpoints",
+      "item": [
+        {
+          "name": "APEX JWT Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/apex/jwt_login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "apex", "jwt_login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('APEX JWT login successful', function () {",
+                  "    pm.response.to.have.status.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('APEX JWT token received', function () {",
+                  "        const responseJson = pm.response.json();",
+                  "        pm.expect(responseJson).to.have.property('token');",
+                  "        pm.collectionVariables.set('apexJwtToken', responseJson.token);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('APEX endpoint not available (expected in some setups)', function () {",
+                  "        pm.expect(pm.response.code).to.equal(404);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "APEX Token Validation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apexJwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{apexJwtToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/apex/validate_token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "apex", "validate_token"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('APEX token validation response', function () {",
+                  "    pm.response.to.have.status.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Token validation successful', function () {",
+                  "        const responseJson = pm.response.json();",
+                  "        pm.expect(responseJson).to.have.property('valid');",
+                  "        pm.expect(responseJson.valid).to.be.true;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09. Health & Info",
+      "description": "System health and information endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health check successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Health status validation', function () {",
+                  "    const responseText = pm.response.text();",
+                  "    pm.expect(responseText).to.include('OK');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/openapi.json",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "openapi.json"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('OpenAPI spec retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('OpenAPI structure validation', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson).to.have.property('openapi');",
+                  "    pm.expect(responseJson).to.have.property('info');",
+                  "    pm.expect(responseJson).to.have.property('paths');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+} 

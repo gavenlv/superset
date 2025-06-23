@@ -1,0 +1,271 @@
+### Superset API Test Scenarios
+### This file can be used with VSCode REST Client extension
+### Variables can be set at the top of the file
+
+@baseUrl = http://localhost:8088
+@username = admin
+@password = admin
+@contentType = application/json
+
+### ===========================================
+### 01. Authentication - Login
+### ===========================================
+
+# @name login
+POST {{baseUrl}}/api/v1/security/login
+Content-Type: {{contentType}}
+
+{
+  "username": "{{username}}",
+  "password": "{{password}}",
+  "provider": "db"
+}
+
+### Extract access token for subsequent requests
+@accessToken = {{login.response.body.access_token}}
+
+### ===========================================
+### 02. Health Check
+### ===========================================
+
+# @name healthCheck
+GET {{baseUrl}}/health
+
+### ===========================================
+### 03. Get User Info
+### ===========================================
+
+# @name getUserInfo
+GET {{baseUrl}}/api/v1/me/
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 04. Get CSRF Token
+### ===========================================
+
+# @name getCsrfToken
+GET {{baseUrl}}/api/v1/security/csrf_token/
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 05. List Dashboards
+### ===========================================
+
+# @name listDashboards
+GET {{baseUrl}}/api/v1/dashboard/?q=(page:0,page_size:25)
+Authorization: Bearer {{accessToken}}
+
+### Extract dashboard ID for subsequent tests
+@dashboardId = {{listDashboards.response.body.result[0].id}}
+
+### ===========================================
+### 06. Get Dashboard Details
+### ===========================================
+
+# @name getDashboard
+GET {{baseUrl}}/api/v1/dashboard/{{dashboardId}}
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 07. List Charts
+### ===========================================
+
+# @name listCharts
+GET {{baseUrl}}/api/v1/chart/?q=(page:0,page_size:25)
+Authorization: Bearer {{accessToken}}
+
+### Extract chart ID for subsequent tests
+@chartId = {{listCharts.response.body.result[0].id}}
+
+### ===========================================
+### 08. Get Chart Data
+### ===========================================
+
+# @name getChartData
+POST {{baseUrl}}/api/v1/chart/data
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "datasource": {
+    "id": 1,
+    "type": "table"
+  },
+  "queries": [
+    {
+      "time_range": "No filter",
+      "granularity": "ds",
+      "filters": [],
+      "extras": {
+        "having": "",
+        "where": ""
+      }
+    }
+  ],
+  "result_format": "json",
+  "result_type": "full"
+}
+
+### ===========================================
+### 09. List Datasets
+### ===========================================
+
+# @name listDatasets
+GET {{baseUrl}}/api/v1/dataset/?q=(page:0,page_size:25)
+Authorization: Bearer {{accessToken}}
+
+### Extract dataset ID for subsequent tests
+@datasetId = {{listDatasets.response.body.result[0].id}}
+
+### ===========================================
+### 10. List Databases
+### ===========================================
+
+# @name listDatabases
+GET {{baseUrl}}/api/v1/database/
+Authorization: Bearer {{accessToken}}
+
+### Extract database ID for subsequent tests
+@databaseId = {{listDatabases.response.body.result[0].id}}
+
+### ===========================================
+### 11. Test Database Connection
+### ===========================================
+
+# @name testConnection
+POST {{baseUrl}}/api/v1/database/test_connection
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "sqlalchemy_uri": "sqlite:///",
+  "database_name": "test_connection"
+}
+
+### ===========================================
+### 12. Execute SQL Query
+### ===========================================
+
+# @name executeSql
+POST {{baseUrl}}/api/v1/sqllab/execute/
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "database_id": {{databaseId}},
+  "sql": "SELECT 1 as test_column, 'Hello World' as message",
+  "runAsync": false,
+  "schema": "main"
+}
+
+### ===========================================
+### 13. List Saved Queries
+### ===========================================
+
+# @name listSavedQueries
+GET {{baseUrl}}/api/v1/saved_query/
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 14. List Security Roles
+### ===========================================
+
+# @name listRoles
+GET {{baseUrl}}/api/v1/security/roles/
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 15. List Users
+### ===========================================
+
+# @name listUsers
+GET {{baseUrl}}/api/v1/security/users/
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 16. APEX JWT Login (Custom)
+### ===========================================
+
+# @name apexLogin
+POST {{baseUrl}}/api/v1/apex/jwt_login
+Content-Type: {{contentType}}
+
+{
+  "username": "{{username}}",
+  "password": "{{password}}"
+}
+
+### Extract APEX JWT token if available
+@apexJwtToken = {{apexLogin.response.body.token}}
+
+### ===========================================
+### 17. APEX Token Validation (Custom)
+### ===========================================
+
+# @name apexValidation
+POST {{baseUrl}}/api/v1/apex/validate_token
+Authorization: Bearer {{apexJwtToken}}
+Content-Type: {{contentType}}
+
+{
+  "token": "{{apexJwtToken}}"
+}
+
+### ===========================================
+### 18. Get OpenAPI Specification
+### ===========================================
+
+# @name getOpenApi
+GET {{baseUrl}}/api/v1/openapi.json
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 19. Test Dashboard with APEX JWT (if available)
+### ===========================================
+
+# @name dashboardWithApex
+GET {{baseUrl}}/api/v1/dashboard/?q=(page:0,page_size:5)
+Authorization: Bearer {{apexJwtToken}}
+
+### ===========================================
+### 20. Performance Test - Multiple Chart Requests
+### ===========================================
+
+# @name perfTest1
+GET {{baseUrl}}/api/v1/chart/?q=(page:0,page_size:10)
+Authorization: Bearer {{accessToken}}
+
+# @name perfTest2
+GET {{baseUrl}}/api/v1/dashboard/?q=(page:0,page_size:10)
+Authorization: Bearer {{accessToken}}
+
+# @name perfTest3
+GET {{baseUrl}}/api/v1/dataset/?q=(page:0,page_size:10)
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### 21. Error Testing - Invalid Token
+### ===========================================
+
+# @name errorTest401
+GET {{baseUrl}}/api/v1/dashboard/
+Authorization: Bearer invalid_token_here
+
+### ===========================================
+### 22. Error Testing - Missing Authorization
+### ===========================================
+
+# @name errorTest401NoAuth
+GET {{baseUrl}}/api/v1/dashboard/
+
+### ===========================================
+### 23. Error Testing - Non-existent Resource
+### ===========================================
+
+# @name errorTest404
+GET {{baseUrl}}/api/v1/dashboard/999999
+Authorization: Bearer {{accessToken}}
+
+### ===========================================
+### End of Test Scenarios
+### =========================================== 

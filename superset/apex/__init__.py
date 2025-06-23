@@ -13,4 +13,37 @@
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
-# under the License. 
+# under the License.
+
+"""
+Apex module for enhanced Superset functionality.
+
+This module provides additional features for better third-party integration,
+including JWT header authentication and enhanced API access.
+"""
+
+from .api import ApexApi
+from .jwt_auth import (
+    JwtHeaderAuthenticator,
+    create_jwt_token,
+    jwt_authenticator,
+    jwt_header_auth_middleware,
+)
+from .middleware import (
+    JwtHeaderSecurityExtension,
+    configure_swagger_anonymous_access,
+    enhance_security_manager,
+    jwt_security_extension,
+)
+
+__all__ = [
+    "ApexApi",
+    "JwtHeaderAuthenticator", 
+    "JwtHeaderSecurityExtension",
+    "configure_swagger_anonymous_access",
+    "create_jwt_token",
+    "enhance_security_manager",
+    "jwt_authenticator",
+    "jwt_header_auth_middleware",
+    "jwt_security_extension",
+] 

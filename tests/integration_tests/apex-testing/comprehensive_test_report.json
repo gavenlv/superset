@@ -1,0 +1,227 @@
+{
+  "timestamp": "2025-06-23T22:30:15.330046",
+  "duration_seconds": 1.292623,
+  "summary": {
+    "total": 43,
+    "passed": 42,
+    "failed": 1,
+    "success_rate": 97.67441860465115
+  },
+  "results": {
+    "JWT Library Import": {
+      "success": true,
+      "details": "PyJWT available",
+      "timestamp": "2025-06-23T22:30:14.077974"
+    },
+    "JWT Token Encoding": {
+      "success": true,
+      "details": "Token length: 169",
+      "timestamp": "2025-06-23T22:30:14.078976"
+    },
+    "JWT Token Decoding": {
+      "success": true,
+      "details": "User ID: 1",
+      "timestamp": "2025-06-23T22:30:14.078976"
+    },
+    "Expired Token Handling": {
+      "success": true,
+      "details": "Expired token properly rejected",
+      "timestamp": "2025-06-23T22:30:14.078976"
+    },
+    "Invalid Signature Handling": {
+      "success": true,
+      "details": "Invalid signature properly rejected",
+      "timestamp": "2025-06-23T22:30:14.079976"
+    },
+    "Client Authentication": {
+      "success": true,
+      "details": "Mock authentication successful",
+      "timestamp": "2025-06-23T22:30:14.079976"
+    },
+    "Token Validation": {
+      "success": true,
+      "details": "User: admin",
+      "timestamp": "2025-06-23T22:30:14.079976"
+    },
+    "API Call /api/v1/chart/": {
+      "success": true,
+      "details": "Success for /api/v1/chart/",
+      "timestamp": "2025-06-23T22:30:14.081048"
+    },
+    "API Call /api/v1/dashboard/": {
+      "success": true,
+      "details": "Success for /api/v1/dashboard/",
+      "timestamp": "2025-06-23T22:30:14.081048"
+    },
+    "API Call /api/v1/dataset/": {
+      "success": true,
+      "details": "Success for /api/v1/dataset/",
+      "timestamp": "2025-06-23T22:30:14.081048"
+    },
+    "API Call /api/v1/database/": {
+      "success": true,
+      "details": "Success for /api/v1/database/",
+      "timestamp": "2025-06-23T22:30:14.082164"
+    },
+    "API Call /api/v1/me/": {
+      "success": true,
+      "details": "Success for /api/v1/me/",
+      "timestamp": "2025-06-23T22:30:14.082164"
+    },
+    "Unauthenticated Access": {
+      "success": true,
+      "details": "Properly rejected",
+      "timestamp": "2025-06-23T22:30:14.082164"
+    },
+    "Required Configuration": {
+      "success": true,
+      "details": "All 3 required configs present",
+      "timestamp": "2025-06-23T22:30:14.083190"
+    },
+    "Config Type APEX_JWT_HEADER_AUTH_ENABLED": {
+      "success": true,
+      "details": "Expected bool, got bool",
+      "timestamp": "2025-06-23T22:30:14.083190"
+    },
+    "Config Type APEX_JWT_DEFAULT_EXPIRES_IN": {
+      "success": true,
+      "details": "Expected int, got int",
+      "timestamp": "2025-06-23T22:30:14.083190"
+    },
+    "Config Type APEX_SWAGGER_ANONYMOUS_PATHS": {
+      "success": true,
+      "details": "Expected list, got list",
+      "timestamp": "2025-06-23T22:30:14.083190"
+    },
+    "Config Type SECRET_KEY": {
+      "success": true,
+      "details": "Expected str, got str",
+      "timestamp": "2025-06-23T22:30:14.084189"
+    },
+    "Default Value APEX_JWT_DEFAULT_EXPIRES_IN": {
+      "success": true,
+      "details": "Value: 86400",
+      "timestamp": "2025-06-23T22:30:14.084189"
+    },
+    "Invalid Token Format": {
+      "success": true,
+      "details": "Token: 'NotBearer valid.jwt....' correctly rejected",
+      "timestamp": "2025-06-23T22:30:14.086188"
+    },
+    "Header Validation 1": {
+      "success": true,
+      "details": "Auth valid: True",
+      "timestamp": "2025-06-23T22:30:14.086188"
+    },
+    "Header Validation 2": {
+      "success": true,
+      "details": "Auth valid: False",
+      "timestamp": "2025-06-23T22:30:14.086188"
+    },
+    "Header Validation 3": {
+      "success": true,
+      "details": "Auth valid: False",
+      "timestamp": "2025-06-23T22:30:14.087188"
+    },
+    "Header Validation 4": {
+      "success": true,
+      "details": "Auth valid: False",
+      "timestamp": "2025-06-23T22:30:14.087188"
+    },
+    "Status Code 200": {
+      "success": true,
+      "details": "Success",
+      "timestamp": "2025-06-23T22:30:14.087188"
+    },
+    "Status Code 401": {
+      "success": true,
+      "details": "Unauthorized",
+      "timestamp": "2025-06-23T22:30:14.087188"
+    },
+    "Status Code 403": {
+      "success": true,
+      "details": "Forbidden",
+      "timestamp": "2025-06-23T22:30:14.087188"
+    },
+    "Status Code 404": {
+      "success": true,
+      "details": "Not Found",
+      "timestamp": "2025-06-23T22:30:14.088189"
+    },
+    "Status Code 422": {
+      "success": true,
+      "details": "Unprocessable Entity",
+      "timestamp": "2025-06-23T22:30:14.088189"
+    },
+    "Status Code 500": {
+      "success": true,
+      "details": "Internal Server Error",
+      "timestamp": "2025-06-23T22:30:14.088189"
+    },
+    "Token Generation Performance": {
+      "success": false,
+      "details": "100 tokens in 1.1514s",
+      "timestamp": "2025-06-23T22:30:15.240418"
+    },
+    "Concurrent Request Handling": {
+      "success": true,
+      "details": "50 requests in 0.0854s",
+      "timestamp": "2025-06-23T22:30:15.325840"
+    },
+    "Memory Efficiency": {
+      "success": true,
+      "details": "1000 objects in 0.0000s",
+      "timestamp": "2025-06-23T22:30:15.325840"
+    },
+    "Integration Step 1: Authentication": {
+      "success": true,
+      "details": "User authenticated",
+      "timestamp": "2025-06-23T22:30:15.327045"
+    },
+    "Integration Step 2: User Info": {
+      "success": true,
+      "details": "User: {'id': 1, 'username': 'admin'}",
+      "timestamp": "2025-06-23T22:30:15.327045"
+    },
+    "Integration Step 3: Resource Access": {
+      "success": true,
+      "details": "Resources accessed",
+      "timestamp": "2025-06-23T22:30:15.328047"
+    },
+    "Integration Step 4: Logout": {
+      "success": true,
+      "details": "User logged out",
+      "timestamp": "2025-06-23T22:30:15.328047"
+    },
+    "Integration Recovery": {
+      "success": true,
+      "details": "Proper access control",
+      "timestamp": "2025-06-23T22:30:15.328047"
+    },
+    "Swagger Path /swagger/": {
+      "success": true,
+      "details": "Swagger UI for /swagger/",
+      "timestamp": "2025-06-23T22:30:15.329047"
+    },
+    "Swagger Path /api/v1/_openapi": {
+      "success": true,
+      "details": "Swagger UI for /api/v1/_openapi",
+      "timestamp": "2025-06-23T22:30:15.329047"
+    },
+    "Swagger Path /api/v1/_openapi.json": {
+      "success": true,
+      "details": "Swagger UI for /api/v1/_openapi.json",
+      "timestamp": "2025-06-23T22:30:15.329047"
+    },
+    "Swagger Path /swaggerui/": {
+      "success": true,
+      "details": "Swagger UI for /swaggerui/",
+      "timestamp": "2025-06-23T22:30:15.329047"
+    },
+    "Non-Swagger Path Access": {
+      "success": true,
+      "details": "Properly restricted",
+      "timestamp": "2025-06-23T22:30:15.330046"
+    }
+  }
+}

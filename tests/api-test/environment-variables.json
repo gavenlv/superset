@@ -1,0 +1,106 @@
+{
+  "name": "Superset API Test Environment",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8088",
+      "description": "Superset server base URL",
+      "enabled": true
+    },
+    {
+      "key": "username",
+      "value": "admin",
+      "description": "Username for authentication",
+      "enabled": true
+    },
+    {
+      "key": "password",
+      "value": "admin",
+      "description": "Password for authentication",
+      "enabled": true
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "JWT access token (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "description": "Refresh token (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "csrfToken",
+      "value": "",
+      "description": "CSRF token (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "dashboardId",
+      "value": "",
+      "description": "Sample dashboard ID (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "chartId",
+      "value": "",
+      "description": "Sample chart ID (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "datasetId",
+      "value": "",
+      "description": "Sample dataset ID (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "databaseId",
+      "value": "",
+      "description": "Sample database ID (auto-populated)",
+      "enabled": true
+    },
+    {
+      "key": "apexJwtToken",
+      "value": "",
+      "description": "APEX custom JWT token (auto-populated)",
+      "enabled": true
+    }
+  ],
+  "environments": {
+    "development": {
+      "baseUrl": "http://localhost:8088",
+      "username": "admin",
+      "password": "admin"
+    },
+    "staging": {
+      "baseUrl": "https://staging-superset.example.com",
+      "username": "test_user",
+      "password": "test_password"
+    },
+    "production": {
+      "baseUrl": "https://superset.example.com",
+      "username": "api_user",
+      "password": "secure_password"
+    }
+  },
+  "apiTestConfig": {
+    "timeout": 30000,
+    "retries": 3,
+    "validateSSL": false,
+    "followRedirects": true,
+    "headers": {
+      "User-Agent": "Superset-API-Test-Suite/1.0",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    }
+  },
+  "testSettings": {
+    "skipAuthTests": false,
+    "skipApexTests": false,
+    "generateReport": true,
+    "verbose": true,
+    "parallelExecution": false
+  }
+} 

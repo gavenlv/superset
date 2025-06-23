@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-06-23T23:33:03.522544",
+  "base_url": "--help",
+  "username": "admin",
+  "total_tests": 3,
+  "passed": 0,
+  "failed": 3,
+  "warnings": 0,
+  "results": [
+    {
+      "test_name": "Health Check",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 2.015352249145508,
+      "timestamp": "2025-06-23T23:33:03.520561"
+    },
+    {
+      "test_name": "OpenAPI Specification",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 0.0,
+      "timestamp": "2025-06-23T23:33:03.521545"
+    },
+    {
+      "test_name": "Authentication - Login",
+      "status": "FAIL",
+      "message": "Status: No response",
+      "response_time": 0.0,
+      "timestamp": "2025-06-23T23:33:03.521545"
+    }
+  ]
+}

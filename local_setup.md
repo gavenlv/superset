@@ -36,8 +36,9 @@ cd superset
 
 ```command
 # Create and activate virtual environment
+# 用特点的版本创建 venv: "C:\Program Files\Python310\python.exe" -m venv venv
 python -m venv venv
-.\venv\Scripts\activate.bat
+.\venv\Scripts\activate
 python -m pip install --upgrade pip
 
 # Install Python dependencies
