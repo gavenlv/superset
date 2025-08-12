@@ -153,6 +153,7 @@ The enhanced data flow diagram shows the complete end-to-end process:
 - **18-step process** ensures comprehensive security at every stage
 - **Multi-level caching** optimizes performance
 - **Dynamic hierarchy support** provides flexible data access control
+- **CRUD permission control** for dashboards, charts, and datasets
 - **End-to-end traceability** for auditing and troubleshooting
 
 ## 3. Authentication Flow (SSO Integration)

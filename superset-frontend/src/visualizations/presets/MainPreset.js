@@ -82,6 +82,7 @@ import { PivotTableChartPlugin as PivotTableChartPluginV2 } from '@superset-ui/p
 import { HandlebarsChartPlugin } from '@superset-ui/plugin-chart-handlebars';
 import { FilterPlugins } from 'src/constants';
 import TimeTableChartPlugin from '../TimeTable';
+import AdvancedPivotTableChartPlugin from '@superset-ui/plugin-chart-advanced-pivot-table';
 
 export default class MainPreset extends Preset {
   constructor() {
@@ -131,6 +132,7 @@ export default class MainPreset extends Preset {
         new PartitionChartPlugin().configure({ key: 'partition' }),
         new EchartsPieChartPlugin().configure({ key: 'pie' }),
         new PivotTableChartPluginV2().configure({ key: 'pivot_table_v2' }),
+        new AdvancedPivotTableChartPlugin().configure({ key: 'advanced_pivot_table' }),
         new RoseChartPlugin().configure({ key: 'rose' }),
         new SankeyChartPlugin().configure({ key: 'sankey' }),
         new TableChartPlugin().configure({ key: 'table' }),

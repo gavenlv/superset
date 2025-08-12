@@ -1,0 +1,27 @@
+# Superset 环境变量配置示例
+# 复制此文件为 .env 并根据你的环境修改配置
+
+# 数据库配置
+SUPERSET_DATABASE_URI=postgresql+psycopg2://postgres:root@localhost:25011/superset_db
+SQLALCHEMY_DATABASE_URI=postgresql+psycopg2://postgres:root@localhost:25011/superset_db
+
+# 安全配置 - 请在生产环境中使用强密钥
+SECRET_KEY=your-super-secret-key-here-change-this-in-production
+
+# Redis 配置
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_CACHE_DB=1
+REDIS_CELERY_DB=0
+
+# Flask 配置
+FLASK_APP=superset.app:create_app()
+FLASK_DEBUG=true
+
+# Superset 特定配置
+SUPERSET_WEBSERVER_TIMEOUT=10000
+SUPERSET_LOAD_EXAMPLES=true
+
+# 开发环境配置
+DEBUG=true
+SHOW_STACKTRACE=true 
