@@ -56,6 +56,7 @@ export enum LocalStorageKeys {
   DashboardExploreContext = 'dashboard__explore_context',
   DashboardEditorShowOnlyMyCharts = 'dashboard__editor_show_only_my_charts',
   CommonResizableSidebarWidths = 'common__resizable_sidebar_widths',
+  IsControlPanelsCollapsed = 'explore__is_control_panels_collapsed',
 }
 
 export type LocalStorageValues = {
@@ -76,6 +77,7 @@ export type LocalStorageValues = {
   dashboard__explore_context: Record<string, DashboardContextForExplore>;
   dashboard__editor_show_only_my_charts: boolean;
   common__resizable_sidebar_widths: Record<string, number>;
+  explore__is_control_panels_collapsed: boolean;
 };
 
 /*
