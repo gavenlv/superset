@@ -154,48 +154,6 @@ describe('ControlPanelsContainer', () => {
     ).toHaveLength(2);
   });
 
-  test('renders collapse functionality for control panels', async () => {
-    render(<ControlPanelsContainer {...getDefaultProps()} />, {
-      useRedux: true,
-    });
-    
-    // Check that the title container is rendered
-    expect(screen.getByText('Chart Controls')).toBeInTheDocument();
-    
-    // Check that the collapse button is rendered
-    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
-    
-    // Check that the control panels are initially visible
-    expect(screen.getByTestId('control-tabs')).toBeInTheDocument();
-  });
-
-  test('collapses and expands control panels when toggle button is clicked', async () => {
-    render(<ControlPanelsContainer {...getDefaultProps()} />, {
-      useRedux: true,
-    });
-    
-    const toggleButton = screen.getByRole('button', { name: /expand/i });
-    
-    // Initially, control panels should be visible
-    expect(screen.getByTestId('control-tabs')).toBeInTheDocument();
-    
-    // Click to collapse
-    userEvent.click(toggleButton);
-    
-    // After collapse, control panels should not be visible
-    expect(screen.queryByTestId('control-tabs')).not.toBeInTheDocument();
-    
-    // Sidebar should be visible when collapsed
-    expect(screen.getByTestId('open-control-panels-tab')).toBeInTheDocument();
-    
-    // Click to expand again
-    const expandButton = screen.getByTestId('open-control-panels-tab');
-    userEvent.click(expandButton);
-    
-    // Control panels should be visible again
-    expect(screen.getByTestId('control-tabs')).toBeInTheDocument();
-  });
-
   test('visibility of panels is correctly applied', async () => {
     getChartControlPanelRegistry().registerValue('table', {
       controlPanelSections: [

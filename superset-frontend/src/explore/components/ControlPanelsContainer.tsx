@@ -73,11 +73,6 @@ import { RunQueryButton } from './RunQueryButton';
 import { Operators } from '../constants';
 import { Clauses } from './controls/FilterControl/types';
 import StashFormDataContainer from './StashFormDataContainer';
-import {
-  getItem,
-  setItem,
-  LocalStorageKeys,
-} from 'src/utils/localStorageHelpers';
 
 const { confirm } = Modal;
 
@@ -159,54 +154,6 @@ const Styles = styled.div`
     display: inline-block;
     text-align: center;
     font-weight: ${({ theme }) => theme.typography.weights.bold};
-  }
-
-  .title-container {
-    position: relative;
-    display: flex;
-    flex-direction: row;
-    padding: 0 ${({ theme }) => theme.gridUnit * 2}px 0
-      ${({ theme }) => theme.gridUnit * 4}px;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
-    background-color: ${({ theme }) => theme.colors.grayscale.light5};
-
-    .horizontal-text {
-      font-size: ${({ theme }) => theme.typography.sizes.m}px;
-      font-weight: ${({ theme }) => theme.typography.weights.bold};
-    }
-
-    .action-button {
-      cursor: pointer;
-      padding: ${({ theme }) => theme.gridUnit}px;
-      border-radius: ${({ theme }) => theme.borderRadius}px;
-      transition: background-color 0.2s;
-
-      &:hover {
-        background-color: ${({ theme }) => theme.colors.grayscale.light3};
-      }
-    }
-  }
-
-  .no-show {
-    display: none;
-  }
-
-  .sidebar {
-    height: 100%;
-    background-color: ${({ theme }) => theme.colors.grayscale.light4};
-    padding: ${({ theme }) => theme.gridUnit * 2}px;
-    width: ${({ theme }) => theme.gridUnit * 8}px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background-color 0.2s;
-
-    &:hover {
-      background-color: ${({ theme }) => theme.colors.grayscale.light3};
-    }
   }
 `;
 
@@ -321,20 +268,16 @@ function useResetOnChangeRef(initialValue: () => any, resetOnChangeValue: any) {
 }
 
 export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
-  const theme = useTheme();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { colors } = useTheme();
   const pluginContext = useContext(PluginContext);
-
-  // Add collapse state for control panels
-  const [isControlPanelsCollapsed, setIsControlPanelsCollapsed] = useState(
-    getItem(LocalStorageKeys.IsControlPanelsCollapsed, false),
-  );
 
   const prevState = usePrevious(props.exploreState);
   const prevDatasource = usePrevious(props.exploreState.datasource);
   const prevChartStatus = usePrevious(props.chart.chartStatus);
 
   const [showDatasourceAlert, setShowDatasourceAlert] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const controlsTransferred = useSelector<
     ExplorePageState,
@@ -643,8 +586,8 @@ export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
     }
 
     const errorColor = sectionHasHadNoErrors.current[sectionId]
-      ? theme.colors.error.base
-      : theme.colors.alert.base;
+      ? colors.error.base
+      : colors.alert.base;
 
     const PanelHeader = () => (
       <span data-test="collapsible-control-panel-header">
@@ -791,12 +734,6 @@ export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
     [handleClearFormClick, handleContinueClick, hasControlsTransferred],
   );
 
-  const toggleControlPanelsCollapse = useCallback(() => {
-    const newCollapsedState = !isControlPanelsCollapsed;
-    setIsControlPanelsCollapsed(newCollapsedState);
-    setItem(LocalStorageKeys.IsControlPanelsCollapsed, newCollapsedState);
-  }, [isControlPanelsCollapsed]);
-
   const dataTabHasHadNoErrors = useResetOnChangeRef(
     () => false,
     form_data.viz_type,
@@ -808,8 +745,8 @@ export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
     }
 
     const errorColor = dataTabHasHadNoErrors.current
-      ? theme.colors.error.base
-      : theme.colors.alert.base;
+      ? colors.error.base
+      : colors.alert.base;
 
     return (
       <>
@@ -838,8 +775,8 @@ export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
       </>
     );
   }, [
-    theme.colors.error.base,
-    theme.colors.alert.base,
+    colors.error.base,
+    colors.alert.base,
     dataTabHasHadNoErrors,
     props.errorMessage,
   ]);
@@ -853,82 +790,45 @@ export const ControlPanelsContainer = (props: ControlPanelsContainerProps) => {
 
   return (
     <Styles ref={containerRef}>
-      <div className="title-container">
-        <span className="horizontal-text">{t('Chart Controls')}</span>
-        <span
-          role="button"
-          tabIndex={0}
-          className="action-button"
-          onClick={toggleControlPanelsCollapse}
-        >
-          <Icons.Expand
-            className="collapse-icon"
-            iconColor={theme.colors.primary.base}
-            iconSize="l"
-          />
-        </span>
-      </div>
-      {!isControlPanelsCollapsed ? (
-        <>
-          <ControlPanelsTabs
-            id="controlSections"
-            data-test="control-tabs"
-            fullWidth={showCustomizeTab}
-            allowOverflow={false}
+      <ControlPanelsTabs
+        id="controlSections"
+        data-test="control-tabs"
+        fullWidth={showCustomizeTab}
+        allowOverflow={false}
+      >
+        <Tabs.TabPane key="query" tab={dataTabTitle}>
+          <Collapse
+            defaultActiveKey={expandedQuerySections}
+            expandIconPosition="right"
+            ghost
           >
-            <Tabs.TabPane key="query" tab={dataTabTitle}>
-              <Collapse
-                defaultActiveKey={expandedQuerySections}
-                expandIconPosition="right"
-                ghost
-              >
-                {showDatasourceAlert && <DatasourceAlert />}
-                {querySections.map(renderControlPanelSection)}
-              </Collapse>
-            </Tabs.TabPane>
-            {showCustomizeTab && (
-              <Tabs.TabPane key="display" tab={t('Customize')}>
-                <Collapse
-                  defaultActiveKey={expandedCustomizeSections}
-                  expandIconPosition="right"
-                  ghost
-                >
-                  {customizeSections.map(renderControlPanelSection)}
-                </Collapse>
-              </Tabs.TabPane>
-            )}
-          </ControlPanelsTabs>
-          <div css={actionButtonsContainerStyles}>
-            <RunQueryButton
-              onQuery={props.onQuery}
-              onStop={props.onStop}
-              errorMessage={props.errorMessage}
-              loading={props.chart.chartStatus === 'loading'}
-              isNewChart={!props.chart.queriesResponse}
-              canStopQuery={props.canStopQuery}
-              chartIsStale={props.chartIsStale}
-            />
-          </div>
-        </>
-      ) : (
-        <div
-          className="sidebar"
-          onClick={toggleControlPanelsCollapse}
-          data-test="open-control-panels-tab"
-          role="button"
-          tabIndex={0}
-        >
-          <span role="button" tabIndex={0} className="action-button">
-            <Tooltip title={t('Open Chart Controls')}>
-              <Icons.Collapse
-                className="collapse-icon"
-                iconColor={theme.colors.primary.base}
-                iconSize="l"
-              />
-            </Tooltip>
-          </span>
-        </div>
-      )}
+            {showDatasourceAlert && <DatasourceAlert />}
+            {querySections.map(renderControlPanelSection)}
+          </Collapse>
+        </Tabs.TabPane>
+        {showCustomizeTab && (
+          <Tabs.TabPane key="display" tab={t('Customize')}>
+            <Collapse
+              defaultActiveKey={expandedCustomizeSections}
+              expandIconPosition="right"
+              ghost
+            >
+              {customizeSections.map(renderControlPanelSection)}
+            </Collapse>
+          </Tabs.TabPane>
+        )}
+      </ControlPanelsTabs>
+      <div css={actionButtonsContainerStyles}>
+        <RunQueryButton
+          onQuery={props.onQuery}
+          onStop={props.onStop}
+          errorMessage={props.errorMessage}
+          loading={props.chart.chartStatus === 'loading'}
+          isNewChart={!props.chart.queriesResponse}
+          canStopQuery={props.canStopQuery}
+          chartIsStale={props.chartIsStale}
+        />
+      </div>
     </Styles>
   );
 };
