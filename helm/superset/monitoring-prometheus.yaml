@@ -1,0 +1,308 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# =============================================================================
+# Prometheus + Grafana + AlertManager 配置
+# =============================================================================
+#
+# 安装:
+#   helm install kube-prometheus prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring \
+#     --values monitoring-prometheus.yaml
+#
+# 访问:
+#   Prometheus: http://prometheus.your-domain.com
+#   Grafana: http://grafana.your-domain.com
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Prometheus 配置
+# -----------------------------------------------------------------------------
+prometheus:
+  # Prometheus 服务配置
+  service:
+    type: ClusterIP
+    port: 9090
+
+  # Prometheus Ingress（可选）
+  ingress:
+    enabled: false  # 根据需要开启
+    # ingressClassName: nginx
+    # annotations:
+    #   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # hosts:
+    #   - prometheus.your-domain.com
+    # tls:
+    #   - secretName: prometheus-tls
+    #     hosts:
+    #       - prometheus.your-domain.com
+
+  # Prometheus Spec
+  prometheusSpec:
+    # 副本数，生产环境建议 2（需要足够资源）
+    replicaCount: 1
+
+    # 数据保留时间
+    retention: 15d
+
+    # 资源配置
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+    # 抓取间隔和评估间隔
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+
+    # ServiceMonitor 选择器 - 必须与 node-exporter 和其他 ServiceMonitor 的标签匹配
+    serviceMonitorSelector:
+      matchLabels:
+        release: kube-prometheus
+
+    # PodMonitor 选择器
+    podMonitorSelector:
+      matchLabels:
+        release: kube-prometheus
+
+    # AlertManager 配置
+    alertmanagerSpec:
+      replicaCount: 1
+
+    # 规则是否启用
+    ruleSelector: true
+    ruleSelectorNilConfigHelm: false
+
+    # 日志级别
+    logLevel: info
+
+    # 外部标签（用于区分环境）
+    externalLabels:
+      environment: production
+      cluster: gke-superset
+
+    # 存储配置（可选，使用持久化存储）
+    # storageSpec:
+    #   volumeClaimTemplate:
+    #     spec:
+    #       storageClassName: standard
+    #       resources:
+    #         requests:
+    #           storage: 50Gi
+
+# -----------------------------------------------------------------------------
+# AlertManager 配置
+# -----------------------------------------------------------------------------
+alertmanager:
+  enabled: true
+
+  # AlertManager 服务
+  service:
+    type: ClusterIP
+    port: 9093
+
+  # AlertManager Spec
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+    # 告警静默配置
+    # pause: false
+
+  # AlertManager 配置文件
+  config:
+    global:
+      # 告警解决后发送 resolve 通知
+      resolve_timeout: 5m
+      # 默认接收者
+      receiver: default-receiver
+
+    # 告警路由配置
+    route:
+      group_by: ['alertname', 'cluster']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: default-receiver
+      routes:
+        # 关键告警立即通知
+        - match:
+            severity: critical
+          receiver: default-receiver
+          continue: true
+        # 一般告警按组通知
+        - match:
+            severity: warning
+          receiver: default-receiver
+
+    # 接收者配置
+    receivers:
+      - name: default-receiver
+        # 配置通知渠道（如 Email、Slack、PagerDuty 等）
+        # email_configs:
+        #   - to: "alerts@your-domain.com"
+        # slack_configs:
+        #   - api_url: "https://hooks.slack.com/services/XXX"
+        #     channel: "#alerts"
+        # pagerduty_configs:
+        #   - service_key: "YOUR_PAGERDUTY_KEY"
+
+# -----------------------------------------------------------------------------
+# Grafana 配置
+# -----------------------------------------------------------------------------
+grafana:
+  enabled: true
+
+  # Grafana 管理员密码（生产环境必须修改）
+  adminPassword: "CHANGE_IN_PRODUCTION_USE_STRONG_PASSWORD"
+
+  # Grafana 持久化
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: standard
+
+  # Grafana 服务
+  service:
+    type: ClusterIP
+    port: 3000
+
+  # Grafana Ingress
+  ingress:
+    enabled: false  # 根据需要开启
+    # ingressClassName: nginx
+    # annotations:
+    #   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # hosts:
+    #   - grafana.your-domain.com
+    # tls:
+    #   - secretName: grafana-tls
+    #     hosts:
+    #       - grafana.your-domain.com
+
+  # Grafana 资源配置
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  # Grafana 插件
+  plugins:
+    - grafana-clock-panel
+    - grafana-piechart-panel
+
+  # Grafana 初始化配置
+  grafana.ini:
+    server:
+      domain: grafana.your-domain.com
+      root_url: https://grafana.your-domain.com
+      serve_from_sub_path: ""
+    # 允许嵌入 iframe
+    .allow_embedding: true
+    # 安全配置
+    security:
+      allow_embedding: true
+      disable_gravatar: false
+    # 日志配置
+    log:
+      mode: console
+      level: info
+
+  # 预设 Dashboards
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          folder: ''
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # 预设数据源
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://kube-prom-prometheus.monitoring:9090
+          isDefault: true
+          editable: false
+
+# -----------------------------------------------------------------------------
+# 默认告警规则
+# -----------------------------------------------------------------------------
+defaultRules:
+  enabled: true
+  create: true
+
+  # 告警规则标签
+  labels:
+    release: kube-prometheus
+
+  # 规则内容
+  rules:
+    # K8s 核心告警
+    alertmanager: true
+    etcd: true
+    k8sCriticalEquipment: true
+    k8sDailyBudget: true
+    k8sResourceAvailability: true
+    k8sSystemLeft: true
+
+    # K8s 组件告警
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+
+    # Node 级别告警
+    node: true
+
+    # Prometheus 自身告警
+    prometheus: true
+
+# -----------------------------------------------------------------------------
+# 全局配置
+# -----------------------------------------------------------------------------
+# 命名空间配置
+namespaceOverride: monitoring
+
+# 图片仓库配置
+imagePullSecrets: []
+
+# 网络策略
+networkPolicy:
+  enabled: false
+
+# RBAC 配置
+rbac:
+  create: true

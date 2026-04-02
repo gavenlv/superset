@@ -1,0 +1,120 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# =============================================================================
+# Superset ServiceMonitor 配置
+# =============================================================================
+#
+# 用于让 Prometheus 自动发现和抓取 Superset 指标
+#
+# 前置条件:
+#   1. Superset 已部署并启用 PROMETHEUS_METRICS=true
+#   2. kube-prometheus-stack 已安装
+#   3. Prometheus 的 serviceMonitorSelector 匹配 release: kube-prometheus
+#
+# 使用方法:
+#   kubectl apply -f superset-servicemonitor.yaml -n superset
+# =============================================================================
+
+---
+# Superset Web 服务监控
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: superset-web-monitor
+  namespace: superset
+  labels:
+    # 重要：此标签必须与 Prometheus 的 serviceMonitorSelector 匹配
+    release: kube-prometheus
+    app: superset
+spec:
+  # 匹配的 Service 标签
+  selector:
+    matchLabels:
+      app: superset
+  # 命名空间选择（当前命名空间）
+  namespaceSelector:
+    matchNames:
+      - superset
+  # 抓取配置
+  endpoints:
+    # 健康检查端点（用于 Up 状态检测）
+    - port: http
+      path: /health
+      interval: 30s
+      scrapeTimeout: 10s
+    # Prometheus 指标端点（Superset 3.x）
+    - port: http
+      path: /prometheus_metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      honorLabels: true
+  # 附加标签（可选，用于去重或过滤）
+  targetLabels:
+    - app
+    - release
+
+---
+# Superset Worker 服务监控（可选，用于监控 Celery 任务）
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: superset-worker-monitor
+  namespace: superset
+  labels:
+    release: kube-prometheus
+    app: superset-worker
+spec:
+  selector:
+    matchLabels:
+      app: superset-worker
+  namespaceSelector:
+    matchNames:
+      - superset
+  endpoints:
+    # Worker 的 metrics 端点（如果暴露）
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
+---
+# PrometheusPodMonitor - 用于监控 Pod 直接暴露的指标
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: superset-node-pod-monitor
+  namespace: superset
+  labels:
+    release: kube-prometheus
+spec:
+  # Pod 选择器
+  selector:
+    matchLabels:
+      app: superset
+  # 容器选择（抓取所有容器）
+  podMetricsEndpoints:
+    - port: http
+      path: /health
+      interval: 30s
+  # 命名空间选择
+  namespaceSelector:
+    matchNames:
+      - superset
+  # 附加标签
+  targetLabels:
+    - app

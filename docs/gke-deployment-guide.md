@@ -9,6 +9,7 @@
 - [部署 Superset](#部署-superset)
 - [验证部署](#验证部署)
 - [监控与告警](#监控与告警)
+- [监控配置清单](#监控配置清单)
 
 ---
 
@@ -55,6 +56,59 @@
 | Superset Worker | 2-8 (HPA) | 1核 × 2 = 2核 | 2Gi × 2 = 4Gi | 异步任务处理 |
 | Celery Beat | 1 | 0.5核 | 1Gi | 定时任务调度 |
 | Celery Flower | 1 | 0.5核 | 1Gi | 任务监控UI |
+
+### Ingress vs Gunicorn 分工
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         用户请求                                 │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Nginx/GCE Ingress                             │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  职责：                                                  │   │
+│  │  1. 流量入口 - 唯一对外暴露点                           │   │
+│  │  2. TLS 终止 - HTTPS 解密                               │   │
+│  │  3. 负载均衡 - 分发到多个 Pod                          │   │
+│  │  4. 静态资源 - CSS/JS/图片等                            │   │
+│  │  5. 限流/防护 - 防止 DDoS                               │   │
+│  │  6. 路径路由 - /api/* → web, /ws/* → websocket        │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │  HTTP (内部集群)
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Gunicorn                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  职责：                                                  │   │
+│  │  1. WSGI 应用服务器 - 运行 Flask/Superset              │   │
+│  │  2. Python 请求处理 - 执行 Python 代码                 │   │
+│  │  3. 动态内容生成 - 图表数据、API 响应                   │   │
+│  │  4. Worker 管理 - 进程/线程池管理                       │   │
+│  │  5. 超时控制 - 单请求超时设置                           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| 维度 | Ingress (Nginx/GCE) | Gunicorn |
+|------|---------------------|----------|
+| **层级** | L7 负载均衡器 | 应用服务器 |
+| **协议** | HTTP/HTTPS | WSGI |
+| **处理内容** | 流量路由、静态资源 | Python/Flask 动态请求 |
+| **部署位置** | K8s Ingress Controller | Pod 内 |
+| **并行处理** | 跨所有 Pod | 单 Pod 内多 Worker |
+| **超时** | 全局连接超时 | 单请求超时 |
+
+**分工原因**：
+
+| 组件 | 回答的问题 | 类比 |
+|------|-----------|------|
+| **Ingress** | "请求去哪台机器？" | 酒店礼宾员，引导客人到楼层 |
+| **Gunicorn** | "谁来处理这个请求？" | 客房服务生，执行具体服务 |
+
+两者配合：**Ingress 决定哪个 Pod 处理请求，Gunicorn 决定哪个 Worker 执行代码**。
 
 ---
 
@@ -430,21 +484,260 @@ k6 run load-test.js
 
 ## 监控与告警
 
-### 1. Cloud Monitoring 集成
+### 监控架构
 
-```bash
-# 安装 Prometheus Operator（可选）
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --create-namespace
-
-# Superset metrics 端点
-# http://superset:8088/health
-# http://superset:8088/ping
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Prometheus + Grafana                        │
+│  ┌─────────────────┐    ┌─────────────────┐                    │
+│  │   Prometheus    │◄───│  node-exporter  │ (每个 Node)       │
+│  │   (抓取指标)     │    └─────────────────┘                    │
+│  └────────┬────────┘                                           │
+│           │                                                      │
+│           ▼                                                      │
+│  ┌─────────────────┐                                            │
+│  │     Grafana     │                                            │
+│  │   (可视化)       │                                            │
+│  └─────────────────┘                                            │
+└─────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+              ┌─────────────────────────┐
+              │    Cloud Monitoring     │
+              │     (GCP 原生)          │
+              └─────────────────────────┘
 ```
 
-### 2. 告警配置建议
+### 1. Node-Exporter 部署
+
+Node-Exporter 用于暴露 **宿主机级别指标**（CPU、内存、磁盘、网络）。
+
+```bash
+# 添加 Prometheus 社区仓库
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# 创建监控命名空间
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# 安装 node-exporter（daemonset，每个节点一个实例）
+helm install node-exporter prometheus-community/prometheus-node-exporter \
+  --namespace monitoring \
+  --values - << 'EOF'
+# prometheus-community/prometheus-node-exporter
+# 官方 values.yaml 参考: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus-node-exporter/values.yaml
+
+service:
+  type: ClusterIP
+  port: 9100
+  targetPort: 9100
+
+# 配置 ServiceMonitor 让 Prometheus 自动发现
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  namespace: monitoring
+
+# 添加 PodMonitor（Kubernetes 1.20+）
+podMonitor:
+  enabled: true
+  interval: 15s
+  namespace: monitoring
+
+# 资源配置
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# 容忍所有污点，确保能在所有节点运行
+tolerations:
+  - operator: Exists
+EOF
+
+# 验证部署
+kubectl get pods -n monitoring -l app=prometheus-node-exporter
+```
+
+### 2. Prometheus + Grafana 部署
+
+```bash
+# 安装 kube-prometheus-stack（包含 Prometheus + Grafana + AlertManager）
+helm install kube-prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --values - << 'EOF'
+# kube-prometheus-stack 配置
+
+# Prometheus 配置
+prometheus:
+  prometheusSpec:
+    # 保留数据 15 天
+    retention: 15d
+    # 副本数（生产环境建议 2）
+    replicaCount: 1
+    # 资源限制
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    # 启用 ServiceMonitor 自动发现
+    serviceMonitorSelector:
+      matchLabels:
+        release: kube-prometheus
+    # 抓取间隔
+    scrapeInterval: 15s
+    # 评估间隔
+    evaluationInterval: 15s
+
+  # Prometheus Service
+  service:
+    type: ClusterIP
+
+# AlertManager 配置
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+# Grafana 配置
+grafana:
+  enabled: true
+  adminPassword: "CHANGE_IN_PRODUCTION"
+  grafana.ini:
+    server:
+      domain: grafana.your-domain.com
+      root_url: https://grafana.your-domain.com
+  # 持久化
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Ingress 配置
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  hosts:
+    - prometheus.your-domain.com
+    - grafana.your-domain.com
+  tls:
+    - secretName: monitoring-tls
+      hosts:
+        - prometheus.your-domain.com
+        - grafana.your-domain.com
+
+# 全局配置
+defaultRules:
+  enabled: true
+  create: true
+  rules:
+    # 启用常用告警规则
+    alertmanager: true
+    etcd: true
+    k8sCriticalEquipment: true
+    k8sDailyBudget: true
+    k8sResourceAvailability: true
+    k8sSystemLeft: true
+    kubernetesAbsence: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    node: true           # Node 级别告警
+    prometheus: true
+EOF
+```
+
+### 3. Superset 指标暴露
+
+Superset 3.x 内置了 Prometheus 指标端点，需要启用：
+
+```yaml
+# values-production.yaml 中添加
+supersetNode:
+  env:
+    # 启用 Prometheus 指标
+    PROMETHEUS_METRICS: "true"
+    # ... 其他配置
+
+# 创建 ServiceMonitor 让 Prometheus 抓取 Superset 指标
+kubectl apply -n superset -f - << 'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: superset-monitor
+  labels:
+    release: kube-prometheus  # 必须与 Prometheus 的 serviceMonitorSelector 匹配
+spec:
+  selector:
+    matchLabels:
+      app: superset
+  endpoints:
+    - port: http
+      path: /health
+      interval: 15s
+      scheme: http
+EOF
+```
+
+### 4. 核心监控指标
+
+#### Node-Exporter 指标（宿主机级别）
+
+| 指标名称 | 说明 | 用途 |
+|---------|------|------|
+| `node_cpu_seconds_total` | CPU 使用时间 | CPU 负载分析 |
+| `node_memory_MemTotal_bytes` | 总内存 | 内存使用率计算 |
+| `node_memory_MemAvailable_bytes` | 可用内存 | 内存压力检测 |
+| `node_filesystem_size_bytes` | 文件系统大小 | 磁盘空间监控 |
+| `node_filesystem_free_bytes` | 文件系统可用 | 磁盘空间预警 |
+| `node_network_receive_bytes_total` | 网络接收字节 | 网络流量监控 |
+| `node_network_transmit_bytes_total` | 网络发送字节 | 网络流量监控 |
+| `node_disk_read_bytes_total` | 磁盘读取字节 | I/O 性能分析 |
+| `node_disk_written_bytes_total` | 磁盘写入字节 | I/O 性能分析 |
+
+#### GKE 特有指标
+
+```bash
+# 安装 GKE 指标插件（可选，用于 HPA 基于自定义指标）
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/k8s-stackdriver/master/kubemonitor-demo/kubemonitor-crds.yaml
+
+# 或使用 Google Cloud Managed Service for Prometheus
+# GKE 集群启用方式：
+# gcloud container clusters update CLUSTER_NAME --enable-managed-prometheus --region=REGION
+```
+
+#### Superset 业务指标
+
+| 指标名称 | 说明 |
+|---------|------|
+| `superset_sql Lab_queries` | SQL 查询数量 |
+| `superset_dashboard_load_time` | 仪表板加载时间 |
+| `superset_chart_render_time` | 图表渲染时间 |
+| `superset_cache_hit_total` | 缓存命中数 |
+
+### 5. 告警配置建议
 
 | 指标 | 阈值 | 动作 |
 |------|------|------|
@@ -596,6 +889,98 @@ supersetWorker:
   nodeSelector:
     cloud.google.com/gke-spot: "true"
 ```
+
+---
+
+## 监控配置清单
+
+### 快速部署命令
+
+```bash
+# 1. 创建监控命名空间
+kubectl create namespace monitoring
+
+# 2. 安装 Node-Exporter（宿主机指标）
+helm install node-exporter prometheus-community/prometheus-node-exporter \
+  --namespace monitoring \
+  --values helm/superset/monitoring-node-exporter.yaml
+
+# 3. 安装 Prometheus + Grafana
+helm install kube-prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --values helm/superset/monitoring-prometheus.yaml
+
+# 4. 部署 Superset ServiceMonitor
+kubectl apply -f helm/superset/superset-servicemonitor.yaml -n superset
+
+# 5. 启用 Superset Prometheus 指标（修改 values-production.yaml）
+# 添加: PROMETHEUS_METRICS: "true"
+```
+
+### 监控配置文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `helm/superset/monitoring-node-exporter.yaml` | Node-Exporter DaemonSet 配置 |
+| `helm/superset/monitoring-prometheus.yaml` | Prometheus + Grafana + AlertManager 配置 |
+| `helm/superset/superset-servicemonitor.yaml` | Superset 指标抓取配置 |
+
+### 监控指标分类
+
+#### 基础设施层（Node-Exporter）
+
+| 指标类型 | 示例 | 用途 |
+|---------|------|------|
+| CPU | `node_cpu_seconds_total` | CPU 使用率、负载 |
+| 内存 | `node_memory_MemAvailable_bytes` | 内存压力检测 |
+| 磁盘 | `node_filesystem_free_bytes` | 磁盘空间预警 |
+| 网络 | `node_network_receive_bytes_total` | 网络流量监控 |
+| I/O | `node_disk_read_bytes_total` | 磁盘读写性能 |
+
+#### Kubernetes 层（kube-prometheus-stack）
+
+| 指标类型 | 示例 | 用途 |
+|---------|------|------|
+| Pod 状态 | `kube_pod_status_phase` | Pod 运行状态 |
+| 资源使用 | `kube_pod_container_resource_limits` | 资源限制追踪 |
+| HPA | `kube_horizontalpodautoscaler_status_current_replicas` | 扩缩容状态 |
+
+#### 应用层（Superset）
+
+| 指标类型 | 示例 | 用途 |
+|---------|------|------|
+| 请求量 | `/prometheus_metrics` | QPS、并发数 |
+| 延迟 | `/health` 响应时间 | 性能分析 |
+| 缓存 | Redis 命中率 | 缓存效率 |
+
+### 验证监控部署
+
+```bash
+# 1. 检查 Node-Exporter Pods
+kubectl get pods -n monitoring -l app=prometheus-node-exporter
+
+# 2. 检查 Prometheus targets
+kubectl port-forward -n monitoring svc/kube-prom-prometheus 9090:9090
+# 访问 http://localhost:9090/targets 查看抓取目标
+
+# 3. 检查 Grafana
+kubectl port-forward -n monitoring svc/kube-prom-grafana 3000:80
+# 访问 http://localhost:3000 查看 Dashboard
+
+# 4. 验证 Superset 指标
+curl http://superset-superset:8088/health
+curl http://superset-superset:8088/prometheus_metrics
+```
+
+### 推荐 Grafana Dashboard
+
+| Dashboard ID | 名称 | 数据源 |
+|-------------|------|--------|
+| 1860 | Node Exporter Full | Prometheus |
+| 6417 | Kubernetes Cluster | Prometheus |
+| 12486 | Superset Dashboard | Prometheus |
+
+导入方式：Grafana → Dashboards → Import → 输入 Dashboard ID
 
 ---
 
