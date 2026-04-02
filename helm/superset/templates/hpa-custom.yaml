@@ -1,0 +1,170 @@
+{{/*
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/}}
+
+# =============================================================================
+# Custom HPA Configuration for 200 Concurrent Users
+# =============================================================================
+# 
+# 为什么需要自定义 HPA？
+# ----------------------
+# 1. 基于 CPU 的扩容适合计算密集型负载
+# 2. Superset 工作负载通常是 I/O 等待（数据库查询）
+# 3. 更好的方式是结合 QPS 和延迟指标
+#
+# 推荐做法：
+# - 生产环境使用 KEDA（基于更丰富的指标）
+# - 或使用自定义指标 + Prometheus Adapter
+# =============================================================================
+
+{{- if .Values.supersetNode.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ template "superset.fullname" . }}-hpa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "superset.name" . }}
+    chart: {{ template "superset.chart" . }}
+    release: {{ .Release.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ template "superset.fullname" . }}
+  minReplicas: {{ .Values.supersetNode.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.supersetNode.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.supersetNode.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.supersetNode.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.supersetNode.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.supersetNode.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    # 扩容行为配置 - 允许快速扩容应对突发流量
+    scaleUp:
+      stabilizationWindowSeconds: 0  # 立即扩容
+      policies:
+        - type: Percent
+          value: 100    # 每次最多翻倍
+          periodSeconds: 15
+        - type: Pods
+          value: 4      # 每次最多加4个
+          periodSeconds: 15
+      selectPolicy: Max  # 取较大值
+    # 缩容行为配置 - 缓慢缩容避免震荡
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 等待5分钟确认稳定
+      policies:
+        - type: Percent
+          value: 50     # 每次最多减50%
+          periodSeconds: 60
+        - type: Pods
+          value: 2      # 每次最多减2个
+          periodSeconds: 60
+      selectPolicy: Min  # 取较小值（更保守）
+{{- end }}
+
+---
+
+{{- if and .Values.supersetWorker.enabled .Values.supersetWorker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ template "superset.fullname" . }}-worker-hpa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "superset.name" . }}
+    chart: {{ template "superset.chart" . }}
+    release: {{ .Release.Name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ template "superset.fullname" . }}-worker
+  minReplicas: {{ .Values.supersetWorker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.supersetWorker.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.supersetWorker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.supersetWorker.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Worker 缩容更保守
+      policies:
+        - type: Percent
+          value: 25     # 每次最多减25%
+          periodSeconds: 120
+      selectPolicy: Min
+{{- end }}
+
+---
+
+{{- if .Values.supersetCeleryBeat.enabled }}
+# Celery Beat 通常不需要 HPA，保持单副本
+apiVersion: v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ template "superset.fullname" . }}-beat-pdb
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ template "superset.name" . }}
+      component: celerybeat
+{{- end }}
+
+---
+
+{{- if .Values.supersetCeleryFlower.enabled }}
+# Flower 也保持单副本
+apiVersion: v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ template "superset.fullname" . }}-flower-pdb
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ template "superset.name" . }}
+      component: flower
+{{- end }}

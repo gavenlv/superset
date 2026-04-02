@@ -1,0 +1,386 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# =============================================================================
+# Production GKE Deployment Configuration for 200 Concurrent Users
+# =============================================================================
+# 
+# 设计原理:
+# ----------
+# 1. 并发200需求分析:
+#    - Superset Web服务使用Gunicorn，每个worker约处理25-50并发
+#    - 200并发 / 4 workers per pod ≈ 需要50个并发处理单元
+#    - 考虑到HPA缓冲和实际负载，推荐初始3个副本，最大10个
+#
+# 2. 资源规划:
+#    - Web服务: 2核CPU + 4Gi内存 per replica (支持4-8 gunicorn workers)
+#    - Worker: 1核CPU + 2Gi内存 per replica (Celery异步任务)
+#
+# 3. 为什么使用这些配置:
+#    - HPA基于CPU 70%触发扩容，保证在负载增加时自动扩展
+#    - PDB设置maxUnavailable=1确保滚动更新时服务不中断
+#    - 资源requests确保Pod获得基本保障，limits防止资源滥用
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 镜像配置 - 使用稳定版本
+# -----------------------------------------------------------------------------
+image:
+  repository: apachesuperset.docker.scarf.sh/apache/superset
+  tag: "3.1.1"  # 使用经过生产验证的版本
+  pullPolicy: IfNotPresent
+
+# -----------------------------------------------------------------------------
+# 服务配置
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP  # GKE内部使用ClusterIP，通过Ingress暴露
+  port: 8088
+  annotations:
+    # Cloud SQL连接注释（如果使用Cloud SQL Proxy）
+    cloud.google.com/backend-config: '{"default": "superset-backend-config"}'
+
+# -----------------------------------------------------------------------------
+# Ingress配置 - 使用Nginx Ingress或GKE Ingress
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  ingressClassName: nginx  # 或 "gce" for Google Cloud Ingress
+  annotations:
+    # Nginx Ingress优化
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_body_buffer_size 100m;
+    # HTTPS重定向
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # 速率限制（保护后端）
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+  path: /
+  pathType: Prefix
+  hosts:
+    - superset.your-domain.com  # 修改为你的域名
+  tls:
+    - secretName: superset-tls
+      hosts:
+        - superset.your-domain.com
+
+# -----------------------------------------------------------------------------
+# 全局资源限制 - 为所有组件设置合理的资源约束
+# -----------------------------------------------------------------------------
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# -----------------------------------------------------------------------------
+# Superset Web服务配置 - 核心并发处理组件
+# -----------------------------------------------------------------------------
+supersetNode:
+  # 副本配置 - 初始3个，支持HPA
+  replicas:
+    enabled: true
+    replicaCount: 3  # 初始3个副本应对常规负载
+
+  # 自动扩缩容配置 - 关键性能优化
+  autoscaling:
+    enabled: true
+    minReplicas: 3      # 最小3个副本，保证基础可用性
+    maxReplicas: 10     # 最大10个副本，应对200并发峰值
+    targetCPUUtilizationPercentage: 70  # CPU达70%时扩容
+
+  # Gunicorn Worker优化 - 为什么这样配置:
+  # - 每个worker是独立进程，可并行处理请求
+  # - 4 workers per pod：2核CPU / 4 = 每个worker 0.5核
+  # - 200并发 / 4 workers ≈ 50请求/worker，仍在处理范围内
+  env:
+    GUNICORN_TIMEOUT: 300              # 5分钟超时，适应长查询
+    GUNICORN_WORKERS: 4                # 每Pod 4个worker
+    GUNICORN_THREADS: 2                # 每worker 2线程
+    SERVER_WORKER_AMOUNT: 4
+    SERVER_THREADS_AMOUNT: 2
+    WORKER_MAX_REQUESTS: 1000         # worker处理1000请求后重启，防止内存泄漏
+    WORKER_MAX_REQUESTS_JITTER: 200    # 随机抖动，防止所有worker同时重启
+    GUNICORN_KEEPALIVE: 5              # 保持连接，减少TCP握手开销
+
+  # 资源配置
+  resources:
+    limits:
+      cpu: 2000m    # 2核 - 支持4个worker并行
+      memory: 4Gi   # 4Gi - Gunicorn workers + Flask缓存
+    requests:
+      cpu: 1000m   # 1核 - 保障基本计算资源
+      memory: 2Gi   # 2Gi - 保障基本内存
+
+  # 就绪探针 - 确保只有健康Pod接收流量
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    periodSeconds: 10
+    successThreshold: 1
+
+  # 存活探针 - 检测并重启卡住的容器
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 60
+    timeoutSeconds: 5
+    failureThreshold: 5
+    periodSeconds: 30
+    successThreshold: 1
+
+  # 启动探针 - 给予应用充足的启动时间
+  startupProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 30  # 30 * 10s = 5分钟启动时间
+    periodSeconds: 10
+
+  # Pod中断预算 - 滚动更新时保持服务可用
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2  # 至少2个Pod可用（针对3个副本）
+
+  # 亲和性调度 - 分散到不同节点，提高可用性
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: superset
+            topologyKey: kubernetes.io/hostname
+
+  # 拓扑分布约束 - 跨可用区分布
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: superset
+
+  # 强制重新加载配置
+  forceReload: false
+
+# -----------------------------------------------------------------------------
+# Superset Celery Worker配置 - 异步任务处理
+# -----------------------------------------------------------------------------
+supersetWorker:
+  replicas:
+    enabled: true
+    replicaCount: 2  # 2个worker副本
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+  # Worker资源配置 - 比Web服务少，因为不需要处理HTTP
+  resources:
+    limits:
+      cpu: 1000m    # 1核 - Celery任务通常CPU密集
+      memory: 2Gi   # 2Gi - 任务队列缓存
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  # Worker健康检查
+  livenessProbe:
+    exec:
+      command:
+        - sh
+        - -c
+        - celery -A superset.tasks.celery_app:app inspect ping -d celery@$HOSTNAME
+    initialDelaySeconds: 120
+    timeoutSeconds: 60
+    failureThreshold: 3
+    periodSeconds: 60
+
+  # PDB
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # 亲和性
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: superset-worker
+            topologyKey: kubernetes.io/hostname
+
+# -----------------------------------------------------------------------------
+# Celery Beat配置 - 定时任务调度
+# -----------------------------------------------------------------------------
+supersetCeleryBeat:
+  enabled: true  # 启用定时任务（报表、告警等）
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# -----------------------------------------------------------------------------
+# Celery Flower配置 - 任务监控UI（可选，生产环境建议启用）
+# -----------------------------------------------------------------------------
+supersetCeleryFlower:
+  enabled: true  # 监控Celery任务
+  replicaCount: 1
+  service:
+    type: ClusterIP
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# PostgreSQL配置 - 使用外部Cloud SQL或自建
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: false  # 生产环境建议使用Cloud SQL for PostgreSQL
+
+# -----------------------------------------------------------------------------
+# Redis配置 - 使用外部Memorystore或自建
+# -----------------------------------------------------------------------------
+redis:
+  enabled: false  # 生产环境建议使用Cloud Memorystore for Redis
+
+# -----------------------------------------------------------------------------
+# Superset Node连接配置 - 适配外部数据库
+# -----------------------------------------------------------------------------
+supersetNode:
+  connections:
+    # 如果使用Cloud SQL for PostgreSQL
+    db_type: "postgresql"
+    db_host: "10.0.0.10"      # 替换为你的Cloud SQL IP
+    db_port: "5432"
+    db_user: "superset"
+    db_pass: "SUPERSET_DB_PASSWORD"  # 使用Secret
+    db_name: "superset"
+
+    # 如果使用Cloud Memorystore for Redis
+    redis_host: "10.0.0.20"    # 替换为你的Memorystore IP
+    redis_port: "6379"
+    redis_user: ""
+    redis_password: ""
+    redis_cache_db: "1"
+    redis_celery_db: "0"
+    redis_ssl:
+      enabled: false
+
+# -----------------------------------------------------------------------------
+# 环境变量 - 敏感信息使用Secret
+# -----------------------------------------------------------------------------
+extraEnv:
+  # SUPERSET_SECRET_KEY: 从Secret加载，不要明文配置
+  DB_HOST: "10.0.0.10"
+  REDIS_HOST: "10.0.0.20"
+
+# Secret配置 - 创建Secret存储敏感信息
+secretEnv:
+  create: true
+
+extraSecretEnv:
+  # 数据库密码
+  DB_PASS: "YOUR_DB_PASSWORD"  # 生产环境使用Secret
+  # Redis密码（如果启用认证）
+  # REDIS_PASSWORD: "YOUR_REDIS_PASSWORD"
+  # Superset加密密钥
+  SUPERSET_SECRET_KEY: "YOUR_SUPERSET_SECRET_KEY_MIN_32_CHARS"
+
+# -----------------------------------------------------------------------------
+# 初始化配置
+# -----------------------------------------------------------------------------
+init:
+  enabled: true
+  loadExamples: false  # 生产环境不加载示例
+  createAdmin: true
+  adminUser:
+    username: "admin"
+    firstname: "Superset"
+    lastname: "Admin"
+    email: "admin@your-domain.com"
+    password: "CHANGE_IN_PRODUCTION"  # 首次部署后修改
+
+# -----------------------------------------------------------------------------
+# 高级配置
+# -----------------------------------------------------------------------------
+# 运行用户 - 使用非root用户更安全
+runAsUser: 1000
+
+# 服务账号
+serviceAccount:
+  create: true
+  annotations:
+    iam.gke.io/gcp-service-account: superset@your-project.iam.gserviceaccount.com
+
+# 节点选择器 - 可指定节点池
+nodeSelector:
+  cloud.google.com/gke-nodepool: superset-pool
+
+# 容忍 - 允许调度到特殊节点
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "superset"
+    effect: "NoSchedule"
+
+# 优先级类 - 确保关键Pod优先调度
+priorityClassName: "high-priority"
+
+# -----------------------------------------------------------------------------
+# 持久化配置 - 对于metadata存储
+# -----------------------------------------------------------------------------
+extraVolumes:
+  - name: superset-cache
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: superset-cache
+    mountPath: /app/.cache
