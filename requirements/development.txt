@@ -714,7 +714,7 @@ pyarrow==16.1.0
     #   apache-superset
     #   db-dtypes
     #   pandas-gbq
-pyasn1==0.6.1
+# pyasn1==0.6.1
     # via
     #   -c requirements/base-constraint.txt
     #   pyasn1-modules
@@ -833,7 +833,7 @@ python-geohash==0.8.5
     #   apache-superset
 python-json-logger==4.0.0
     # via pydocket
-python-ldap==3.4.4
+# python-ldap==3.4.4
     # via apache-superset
 python-multipart==0.0.20
     # via mcp
