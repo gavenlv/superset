@@ -10,43 +10,106 @@
 - [验证部署](#验证部署)
 - [监控与告警](#监控与告警)
 - [监控配置清单](#监控配置清单)
+- [下游服务集成](#下游服务集成)
+- [优雅关闭配置](#优雅关闭配置)
 
 ---
+
 
 ## 架构概览
 
 ```
-                              ┌─────────────────────────────────────┐
-                              │           GKE Cluster               │
-                              │                                     │
-┌──────────────┐              │  ┌─────────────────────────────┐   │
-│   Internet   │ ──────────► │  │   Nginx/GCE Ingress          │   │
-└──────────────┘              │  └──────────────┬──────────────┘   │
-                              │                 │                   │
-                              │  ┌──────────────▼──────────────┐   │
-                              │  │   Superset Web (3-10 pods)  │   │
-                              │  │   Gunicorn: 4 workers/pod   │   │
-                              │  └──────────────┬──────────────┘   │
-                              │                 │                   │
-                              │  ┌──────────────▼──────────────┐   │
-                              │  │   Superset Worker (2-8 pods)│   │
-                              │  │   Celery + Redis Queue      │   │
-                              │  └──────────────┬──────────────┘   │
-                              │                 │                   │
-                              │  ┌──────────────▼──────────────┐   │
-                              │  │   Celery Beat (1 pod)       │   │
-                              │  │   Scheduled Tasks           │   │
-                              │  └─────────────────────────────┘   │
-                              └─────────────────────────────────────┘
-                                         │           │
-                     ┌───────────────────┘           └───────────────────┐
-                     │                                                   │
-              ┌──────▼──────┐                                    ┌──────▼──────┐
-              │ Cloud SQL   │                                    │Cloud Memory │
-              │ PostgreSQL  │                                    │   Store     │
-              │  (HA Setup) │                                    │   Redis     │
-              └─────────────┘                                    └─────────────┘
+                                        ┌──────────────────┐
+                                        │     Internet     │
+                                        │   (用户访问)      │
+                                        └────────┬─────────┘
+                                                 │
+                                                 ▼
+                                  ┌──────────────────────────┐
+                                  │       Gateway            │
+                                  │   (统一入口，可选)        │
+                                  └────────────┬─────────────┘
+                                               │
+                                               ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           GKE Cluster (GCP)                                │
+│                                                                            │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │                  Nginx/GCE Ingress (L7 LB)                       │    │
+│  │  - TLS 终止  - 限流/防护  - 路径路由  - 负载均衡                 │    │
+│  └────────────────────────────┬─────────────────────────────────────┘    │
+│                               │                                            │
+│                               ▼                                            │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │              Superset Web (3-10 pods, HPA)                       │    │
+│  │              Gunicorn: 4 workers/pod                              │    │
+│  └────────┬───────────────────────────────┬─────────────────────────┘    │
+│           │                               │                               │
+│           │                               ▼                               │
+│           │         ┌──────────────────────────────────┐                │
+│           │         │  Superset Worker (2-8 pods, HPA)│                │
+│           │         │  Celery + Redis Queue           │                │
+│           │         └────────┬─────────────────────────┘                │
+│           │                  │                                            │
+│           │                  ▼                                            │
+│           │         ┌──────────────────────────────────┐                │
+│           │         │    Celery Beat (1 pod)           │                │
+│           │         └──────────────────────────────────┘                │
+│           │                                                               │
+└───────────┼───────────────────────────────────────────────────────────────┘
+            │
+            │  Superset 访问的下游依赖服务
+            │
+            ├──────────────┬──────────────┬─────────────┬──────────────┐
+            │              │              │             │              │
+            ▼              ▼              ▼             ▼              ▼
+    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌────────────┐ ┌────────────┐
+    │ Cloud SQL   │ │   Cloud     │ │ Entitlement │ │ Reference  │ │ Reporting  │
+    │ PostgreSQL  │ │ Memorystore │ │  Service    │ │  Service   │ │    DB      │
+    │ (元数据)    │ │   Redis     │ │ (权限服务)   │ │ (参考数据)  │ │   (OLAP)   │
+    │ - 用户      │ │ - Cache     │ │             │ │            │ │ClickHouse/ │
+    │ - 角色      │ │ - Queue     │ └─────────────┘ └────────────┘ │ BigQuery/  │
+    │ - 图表配置  │ │ - Session   │                                  │ Snowflake  │
+    └─────────────┘ └─────────────┘                                  └────────────┘
+           ▲                ▲                           ▲                 ▲
+           │                │                           │                 │
+           └────────────────┴───────────────────────────┴─────────────────┘
+                              Superset Web 直接访问所有下游服务
 ```
+
+### 数据流向说明
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          请求处理流程                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. 用户请求 → Gateway (可选) → Ingress                                │
+│     ↓                                                                   │
+│  2. Superset Web 接收请求                                              │
+│     ↓                                                                   │
+│  3. 调用 Entitlement Service 验证用户权限                              │
+│     ↓                                                                   │
+│  4. 调用 Reference Service 获取参考数据（下拉选项等）                  │
+│     ↓                                                                   │
+│  5. 【直接查询】Reporting DB 获取业务数据                              │
+│     ↓                                                                   │
+│  6. 返回图表/报表给用户                                                 │
+│                                                                         │
+│  注：Superset Web 通过 SQLAlchemy 直接连接 Reporting DB                │
+│     不经过任何中间层或代理                                              │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Superset 依赖的下游服务
+
+| 服务 | 访问方向 | 说明 |
+|------|---------|------|
+| **Gateway** | 用户 → Gateway → Superset | 统一入口，可选层 |
+| **Entitlement Service** | Superset → 调用 | 验证用户权限、数据行级权限 |
+| **Reference Service** | Superset → 调用 | 获取下拉选项、字典数据 |
+| **Reporting DB** | Superset Web → **直接查询** | 业务数据查询、分析（SQLAlchemy直连） |
 
 ### 核心组件说明
 
@@ -56,6 +119,83 @@
 | Superset Worker | 2-8 (HPA) | 1核 × 2 = 2核 | 2Gi × 2 = 4Gi | 异步任务处理 |
 | Celery Beat | 1 | 0.5核 | 1Gi | 定时任务调度 |
 | Celery Flower | 1 | 0.5核 | 1Gi | 任务监控UI |
+
+### 下游服务集成配置
+
+#### 数据流向
+
+| 集成点 | 数据流向 | 说明 |
+|--------|---------|------|
+| **Gateway** | Internet → Ingress | 统一入口，可选层 |
+| **Entitlement Service** | Superset → 权限服务 | 验证用户权限、数据行级权限 |
+| **Reference Service** | Superset → 参考服务 | 获取下拉选项、字典数据 |
+| **Reporting DB** | Superset → OLAP | 业务数据查询、分析 |
+
+#### 下游服务配置示例
+
+```yaml
+# values-production.yaml 中添加下游服务配置
+
+# 1. Gateway 集成（可选）
+ingress:
+  annotations:
+    # 如果前面有统一网关
+    nginx.ingress.kubernetes.io/proxy-redirect-from: "gateway.your-domain.com"
+
+# 2. Entitlement Service 集成（权限服务）
+extraEnv:
+  # 权限服务地址
+  ENTITLEMENT_SERVICE_URL: "https://entitlement.your-domain.com"
+  ENTITLEMENT_SERVICE_TIMEOUT: "30"
+  # 启用外部权限校验
+  ENABLE_ENTITLEMENT_CHECK: "true"
+
+# 3. Reference Service 集成（参考数据服务）
+extraEnv:
+  REFERENCE_SERVICE_URL: "https://reference.your-domain.com/api/v1"
+  REFERENCE_SERVICE_TIMEOUT: "30"
+  REFERENCE_SERVICE_CACHE_TTL: "3600"  # 缓存1小时
+
+# 4. Reporting DB 集成（OLAP数据源）
+# 在 Superset UI 中配置，或通过 extraConfigs 导入
+extraConfigs:
+  reporting_db.yaml: |
+    databases:
+      - database_name: reporting_db
+        sqlalchemy_uri: clickhouse://user:pass@clickhouse-host:8123/default
+        expose_in_sqllab: true
+        allow_run_async: true
+        allow_dml: false
+        extra:
+          metadata_params: {}
+          engine_params: {}
+```
+
+#### OAuth + Entitlement 集成流程
+
+```
+用户登录 → Gateway → Superset → Entitlement Service
+                     ↓               ↓
+              1. 验证 JWT      2. 查询用户权限
+                     ↓               ↓
+              3. 加载角色      4. 返回权限列表
+                     ↓
+              5. 应用行级权限过滤
+                     ↓
+              6. 查询 Reporting DB
+                     ↓
+              7. 返回图表数据
+```
+
+#### Reporting DB 选择建议
+
+| 数据仓库 | 适用场景 | Superset 驱动 |
+|---------|---------|--------------|
+| **ClickHouse** | 高性能 OLAP，实时分析 | `clickhouse-connect` |
+| **BigQuery** | GCP 原生，PB级数据 | `pybigquery` |
+| **Snowflake** | 云原生，弹性扩展 | `snowflake-connector-python` |
+| **Redshift** | AWS 原生数据仓库 | `sqlalchemy-redshift` |
+| **PostgreSQL** | 中小规模，关系型 | `psycopg2` |
 
 ### Ingress vs Gunicorn 分工
 
@@ -981,6 +1121,267 @@ curl http://superset-superset:8088/prometheus_metrics
 | 12486 | Superset Dashboard | Prometheus |
 
 导入方式：Grafana → Dashboards → Import → 输入 Dashboard ID
+
+---
+
+## 优雅关闭配置
+
+### 问题：Autoscale 导致 502 错误
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     问题根因分析                              │
+├──────────────────────────────────────────────────────────────┤
+│  1. Cluster Autoscaler 缩容节点                             │
+│     ↓                                                        │
+│  2. Pod 收到 SIGTERM 信号，开始终止                          │
+│     ↓                                                        │
+│  3. Ingress Controller 还未更新路由表                        │
+│     ↓                                                        │
+│  4. 新请求仍被路由到正在终止的 Pod                           │
+│     ↓                                                        │
+│  5. Gunicorn Worker 正在处理长查询，被强制中断               │
+│     ↓                                                        │
+│  6. 用户收到 502 Bad Gateway 或连接中断                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 解决方案：优雅关闭三阶段
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                   优雅关闭时间轴                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  T=0s      Pod 收到 SIGTERM                                  │
+│            ↓                                                 │
+│  T=0-30s   ① PreStop Hook 执行                              │
+│            - sleep 30 (等待 Ingress 更新路由)               │
+│            - 新请求不再路由到此 Pod                          │
+│            ↓                                                 │
+│  T=30-330s ② Gunicorn 优雅关闭                              │
+│            - 停止接收新请求                                  │
+│            - 等待现有请求完成（最多 300s）                   │
+│            ↓                                                 │
+│  T=360s    ③ 强制终止 (SIGKILL)                             │
+│            - terminationGracePeriodSeconds 到期             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 配置实现
+
+#### 1. Deployment 配置（Helm values）
+
+```yaml
+# values-production.yaml
+
+supersetNode:
+  # PreStop 生命周期钩子
+  lifecycle:
+    preStop:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - |
+            # 通知 Gunicorn 优雅关闭
+            kill -TERM 1
+            
+            # 等待 Ingress Controller 更新路由表
+            # Nginx Ingress 默认 10-20s，保守设置 30s
+            sleep 30
+
+  # 终止宽限期
+  # 计算：preStop sleep (30s) + GUNICORN_TIMEOUT (300s) + buffer (30s) = 360s
+  # 注意：需要在 Pod template.spec 中设置
+  # 如果 Helm Chart 不支持，需要修改 deployment template
+
+  # 部署策略
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # 滚动更新时最多多创建 1 个 Pod
+      maxUnavailable: 0    # 零停机，不能有不可用的 Pod
+```
+
+#### 2. Gunicorn 优雅关闭配置
+
+```yaml
+supersetNode:
+  env:
+    GUNICORN_TIMEOUT: 300              # 请求超时
+    GUNICORN_GRACEFUL_TIMEOUT: 300     # 优雅关闭超时（与 GUNICORN_TIMEOUT 一致）
+    GUNICORN_WORKERS: 4
+    WORKER_MAX_REQUESTS: 1000
+```
+
+#### 3. 修改 Deployment Template（如需要）
+
+如果 Helm Chart 不支持 `terminationGracePeriodSeconds`，修改 `deployment.yaml`：
+
+```yaml
+# helm/superset/templates/deployment.yaml
+
+spec:
+  template:
+    spec:
+      # 添加优雅关闭时间
+      terminationGracePeriodSeconds: 360
+      
+      containers:
+        - name: {{ .Chart.Name }}
+          # ... 其他配置
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "kill -TERM 1 && sleep 30"
+```
+
+#### 4. Ingress Connection Draining
+
+```yaml
+# values-production.yaml
+
+ingress:
+  annotations:
+    # Nginx Ingress 连接排空
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    
+    # Upstream keepalive（保持连接）
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "100"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "300"
+    
+    # 慢启动（新 Pod 逐渐接收流量）
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+```
+
+#### 5. Service 配置
+
+```yaml
+# 确保 Service 有正确的就绪探针
+supersetNode:
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    periodSeconds: 10
+    successThreshold: 1
+```
+
+### HPA 缩容冷却期
+
+防止 HPA 频繁缩容：
+
+```yaml
+# hpa-custom.yaml
+
+behavior:
+  scaleDown:
+    stabilizationWindowSeconds: 600  # 等待 10 分钟确认稳定
+    policies:
+      - type: Percent
+        value: 25     # 每次最多减 25%
+        periodSeconds: 120
+      - type: Pods
+        value: 2      # 每次最多减 2 个
+        periodSeconds: 120
+    selectPolicy: Min  # 取较小值（更保守）
+```
+
+### PDB 保护
+
+```yaml
+supersetNode:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2  # 至少保持 2 个 Pod 可用
+```
+
+### 验证优雅关闭
+
+```bash
+# 1. 查看 Pod 终止日志
+kubectl logs -n superset <pod-name> --previous
+
+# 2. 测试滚动更新
+kubectl rollout status deployment/superset-superset -n superset
+
+# 3. 模拟节点缩容
+kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data --grace-period=360
+
+# 4. 监控 Ingress upstream 变化
+kubectl logs -n ingress-nginx <ingress-controller-pod> -f | grep upstream
+```
+
+---
+
+## 下游服务集成
+
+### 配置文件
+
+创建下游服务集成配置文件：`helm/superset/external-integration.yaml`
+
+```yaml
+# 下游服务地址
+extraEnv:
+  # Entitlement Service（权限服务）
+  ENTITLEMENT_SERVICE_URL: "https://entitlement.your-domain.com"
+  ENTITLEMENT_SERVICE_TIMEOUT: "30"
+  ENABLE_ENTITLEMENT_CHECK: "true"
+  
+  # Reference Service（参考数据服务）
+  REFERENCE_SERVICE_URL: "https://reference.your-domain.com/api/v1"
+  REFERENCE_SERVICE_TIMEOUT: "30"
+  REFERENCE_SERVICE_CACHE_TTL: "3600"
+  
+  # Gateway（可选）
+  API_GATEWAY_URL: "https://gateway.your-domain.com"
+
+# Secret 存储敏感信息
+extraSecretEnv:
+  ENTITLEMENT_API_KEY: "your-api-key"
+  REFERENCE_API_KEY: "your-api-key"
+
+# Reporting DB 数据源（通过 extraConfigs 导入）
+extraConfigs:
+  reporting_db.yaml: |
+    databases:
+      - database_name: reporting_clickhouse
+        sqlalchemy_uri: clickhouse://user:password@clickhouse-host:8123/default
+        expose_in_sqllab: true
+        allow_run_async: true
+        allow_dml: false
+        extra:
+          metadata_params: {}
+          engine_params:
+            connect_args:
+              timeout: 300
+```
+
+### 数据源连接池配置
+
+```yaml
+# values-production.yaml
+
+supersetNode:
+  env:
+    # 数据库连接池
+    SQLALCHEMY_POOL_SIZE: 10
+    SQLALCHEMY_MAX_OVERFLOW: 20
+    SQLALCHEMY_POOL_RECYCLE: 3600
+    SQLALCHEMY_POOL_TIMEOUT: 30
+    
+    # Redis 连接池
+    REDIS_POOL_SIZE: 20
+```
 
 ---
 
