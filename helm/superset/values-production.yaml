@@ -169,6 +169,70 @@ supersetNode:
     enabled: true
     minAvailable: 2  # 至少2个Pod可用（针对3个副本）
 
+  # -----------------------------------------------------------------------------
+  # 优雅关闭配置 - 防止 Autoscale 导致的 502 和连接中断
+  # -----------------------------------------------------------------------------
+  # 问题原因:
+  #   1. Cluster Autoscaler 缩容节点时，Pod 被强制终止
+  #   2. Ingress 还未更新路由，流量仍发送到已终止的 Pod
+  #   3. Gunicorn Worker 正在处理请求时被 SIGKILL
+  #
+  # 解决方案:
+  #   1. terminationGracePeriodSeconds: 给予足够的关闭时间
+  #   2. preStop hook: 先从 Service 移除，再等待请求完成
+  #   3. Connection draining: Ingress 层面的连接排空
+  # -----------------------------------------------------------------------------
+
+  # 优雅关闭时间（秒）
+  # 计算: GUNICORN_TIMEOUT (300s) + preStop sleep (30s) + buffer (30s) = 360s
+  # 为什么需要这么长？长查询可能需要 5 分钟完成
+  # 注意：需要在 deployment template.spec 中设置（见下方）
+
+  # PreStop 生命周期钩子
+  # 作用：在 Pod 被终止前执行，实现优雅关闭
+  # 流程：
+  #   1. SIGTERM 发送到 Pod
+  #   2. preStop 执行 sleep 30（等待 Ingress 更新路由）
+  #   3. Gunicorn 收到 SIGTERM，停止接收新请求
+  #   4. 等待现有请求完成（最多 terminationGracePeriodSeconds）
+  #   5. 强制终止（SIGKILL）
+  lifecycle:
+    preStop:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - |
+            # 1. 通知 Gunicorn 优雅关闭
+            kill -TERM 1
+            
+            # 2. 等待 Ingress 控制器更新路由表（通常 10-20 秒）
+            #    这段时间内，新请求不会再路由到此 Pod
+            sleep 30
+            
+            # 3. 可选：主动从 Service 端点移除（加速 Ingress 更新）
+            #    这在某些 Ingress 控制器中有效
+
+  # 终止宽限期（秒）
+  # 这个值需要在 Deployment template.spec.terminationGracePeriodSeconds 中设置
+  # 当前默认值是 30s，对于长查询不够
+  # 建议值：360s（6分钟）
+  # 配置方式：见下方的 strategy 配置
+
+  # 部署策略 - 滚动更新配置
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # 滚动更新时最多多创建 1 个 Pod
+      maxUnavailable: 0    # 滚动更新时不能有不可用的 Pod（零停机）
+
+  # 额外容器配置（用于优雅关闭）
+  # 注意：Kubernetes 默认的 terminationGracePeriodSeconds 是 30s
+  # 需要通过 extraEnvRaw 或直接在 deployment 中配置
+  extraEnvRaw:
+    - name: GUNICORN_GRACEFUL_TIMEOUT
+      value: "300"  # Gunicorn 优雅关闭超时（与 GUNICORN_TIMEOUT 一致）
+
   # 亲和性调度 - 分散到不同节点，提高可用性
   affinity:
     podAntiAffinity:
